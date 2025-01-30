@@ -43,6 +43,7 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+cache/
 nosetests.xml
 coverage.xml
 *.cover
@@ -169,3 +170,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+/resources/*
+!/resources/qwebchannel.js
+!/resources/adjusted_travel_times.csv
