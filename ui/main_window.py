@@ -64,7 +64,6 @@ class MainWindow(QWidget):
 
         main_layout.addLayout(content_layout)
 
-        # Let map widget update stats
         self.map_widget.set_stats_labels(
             self.time_taken_label,
             self.total_travel_time_label,

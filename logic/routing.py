@@ -20,7 +20,6 @@ def compute_shortest_route(G, origin_latlng, destination_latlng):
 
     computation_time = time.time() - start_time
 
-    # Convert route nodes to (lat, lon)
     route_nodes = [(G.nodes[node]['y'], G.nodes[node]['x']) for node in route]
 
     cumulative_times = [0]
@@ -31,7 +30,6 @@ def compute_shortest_route(G, origin_latlng, destination_latlng):
 
     for u, v in zip(route[:-1], route[1:]):
         edge_data = G.get_edge_data(u, v)
-        # in case there's parallel edges
         if isinstance(edge_data, dict):
             edge_data = edge_data[list(edge_data.keys())[0]]
 
@@ -60,16 +58,13 @@ def find_tsp_route(G, delivery_points, center=(54.8985, 23.9036)):
     Returns (final_route_coords, total_travel_time, total_distance, compute_time, snapped_nodes).
     """
 
-    # Insert center as first point
     delivery_points.insert(0, center)
 
-    # Snap each lat-lon to graph node
     snapped_nodes = []
     for lat, lon in delivery_points:
         snapped = ox.nearest_nodes(G, X=lon, Y=lat)
         snapped_nodes.append(snapped)
 
-    # Build all-pairs A* travel_time
     node_count = len(snapped_nodes)
     T = {}
     all_paths = {}
@@ -101,7 +96,6 @@ def find_tsp_route(G, delivery_points, center=(54.8985, 23.9036)):
                     T[i][j] = float('inf')
                     all_paths[i][j] = []
 
-    # Build TSP graph
     tsp_graph = nx.DiGraph()
     for i in range(node_count):
         for j in range(node_count):
@@ -109,7 +103,6 @@ def find_tsp_route(G, delivery_points, center=(54.8985, 23.9036)):
                 cost = T[i][j]
                 tsp_graph.add_edge(i, j, weight=cost)
 
-    # Solve TSP (approx)
     t0 = time.time()
     tsp_node_path = nx.approximation.traveling_salesman_problem(
         tsp_graph, cycle=True, weight='weight'
@@ -134,14 +127,12 @@ def find_tsp_route(G, delivery_points, center=(54.8985, 23.9036)):
             total_distance += dist
             total_travel_time += ttime
 
-    # Add the last node
     if tsp_node_path and len(tsp_node_path) > 1:
         last_idx = tsp_node_path[-1]
         last_segment = all_paths[tsp_node_path[-2]][last_idx]
         if last_segment:
             final_path_nodes.append(last_segment[-1])
 
-    # Convert nodes to lat-lon for drawing on Folium
     final_route_coords = [(G.nodes[n]['y'], G.nodes[n]['x']) for n in final_path_nodes]
 
     return final_route_coords, total_travel_time, total_distance, compute_time, snapped_nodes

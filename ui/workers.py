@@ -44,7 +44,6 @@ class ComputeRouteWorker(QtCore.QThread):
              cumulative_times,
              cumulative_distances) = compute_shortest_route(self.G, self.origin, self.destination)
 
-            # On success
             self.finished.emit(
                 (route_nodes, cumulative_times, cumulative_distances),
                 total_travel_time,

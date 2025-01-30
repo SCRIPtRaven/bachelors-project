@@ -52,7 +52,6 @@ def update_travel_times_from_csv(G, csv_file="resources/adjusted_travel_times.cs
             if G.has_edge(orig_node, dest_node):
                 edge_data = G[orig_node][dest_node]
                 if isinstance(edge_data, dict):
-                    # Update travel time for all parallel edges
                     for key in edge_data.keys():
                         edge_data[key]["travel_time"] = travel_time
             else:

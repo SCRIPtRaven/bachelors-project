@@ -33,15 +33,12 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
         self.origin = None
         self.destination = None
 
-        # Optional: store label references for stats
         self.time_label = None
         self.travel_time_label = None
         self.distance_label = None
 
-        # Keep track of random delivery points
         self.snapped_delivery_points = []
 
-        # Setup bridging
         self.channel = QtWebChannel.QWebChannel()
         self.bridge = WebBridge()
         self.channel.registerObject('bridge', self.bridge)
@@ -179,10 +176,8 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                           computation_time, success, message):
         if success:
             route_nodes, cumulative_times, cumulative_distances = route_data
-            # Draw route on the map
             folium.PolyLine(locations=route_nodes, color='blue', weight=5, opacity=0.7).add_to(self.map)
 
-            # Optionally add small step markers
             for idx, point in enumerate(route_nodes):
                 folium.CircleMarker(
                     location=point,
@@ -198,7 +193,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                     )
                 ).add_to(self.map)
 
-            # Update labels
             if self.time_label:
                 self.time_label.setText(f"Time to compute route: {computation_time:.2f}s")
             if self.travel_time_label:
@@ -220,7 +214,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             QtWidgets.QMessageBox.warning(self, "Graph Not Loaded", "Please load the graph data first.")
             return
 
-        # gather marker points
         delivery_points = []
         for child in self.map._children.values():
             if isinstance(child, folium.Marker):
@@ -235,9 +228,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                 self.G, delivery_points
             )
 
-            # re-init the map
             self.init_map()
-            # draw the TSP route
             folium.PolyLine(
                 locations=route_coords,
                 color='purple',
@@ -246,7 +237,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                 tooltip="A* TSP Route"
             ).add_to(self.map)
 
-            # re-add markers
             for i, node_id in enumerate(snapped_nodes):
                 lat, lon = self.G.nodes[node_id]['y'], self.G.nodes[node_id]['x']
                 color = 'blue' if i != 0 else 'red'
@@ -258,7 +248,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                     icon=folium.Icon(color=color, icon=icon)
                 ).add_to(self.map)
 
-            # update stats
             if self.time_label:
                 self.time_label.setText(f"TSP solved in {compute_time:.2f} s")
             if self.travel_time_label:
@@ -309,7 +298,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             while len(outer_points) < outer_count:
                 lat = random.uniform(min_lat, max_lat)
                 lon = random.uniform(min_lon, max_lon)
-                # only accept if it's not in the "inner" bounding box
                 if not (inner_min_lat <= lat <= inner_max_lat and inner_min_lon <= lon <= inner_max_lon):
                     outer_points.append((lat, lon))
 
