@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "bakalauras"
+version = "0.1.0"
+description = ""
+authors = ["Aivaras <aivaras.puskorius@ktu.edu>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+osmnx = "^2.0.0"
+networkx = "^3.4.2"
+scikit-learn = "^1.5.2"
+matplotlib = "^3.9.2"
+folium = "^0.18.0"
+outscraper = "^5.5.0"
+tenacity = "^9.0.0"
+protobuf = "^5.29.1"
+shapely = "^2.0.6"
+tqdm = "^4.67.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
