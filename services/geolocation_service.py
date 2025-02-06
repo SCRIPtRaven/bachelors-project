@@ -6,6 +6,7 @@ from typing import Tuple
 from config.settings import INNER_POINTS_RATIO, PACKAGE_CONSTRAINTS, DRIVER_CONSTRAINTS
 
 
+# TODO : Implement centralized data type handling and definitions
 @dataclass
 class DeliveryPoint:
     coordinates: Tuple[float, float]

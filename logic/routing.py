@@ -77,18 +77,14 @@ def find_tsp_route(G, delivery_points, center=None):
     start_time = time.time()
 
     if center is None:
-        # Calculate the geometric center of the graph if no center is provided
         lats = [data['y'] for _, data in G.nodes(data=True)]
         lons = [data['x'] for _, data in G.nodes(data=True)]
         center = (sum(lats) / len(lats), sum(lons) / len(lons))
 
-    # Add center as first point
     all_points = [center] + delivery_points
 
-    # Solve TSP using OR-Tools
     ordered_points, total_travel_time = solve_tsp(G, all_points)
 
-    # Convert the solution into a detailed route
     route_coords = []
     snapped_nodes = []
     total_distance = 0
@@ -97,19 +93,15 @@ def find_tsp_route(G, delivery_points, center=None):
         start = ordered_points[i]
         end = ordered_points[i + 1]
 
-        # Find nearest nodes in the road network
         start_node = ox.nearest_nodes(G, X=start[1], Y=start[0])
         end_node = ox.nearest_nodes(G, X=end[1], Y=end[0])
         snapped_nodes.append(start_node)
 
-        # Get the detailed path between these points
         path = nx.shortest_path(G, start_node, end_node, weight='travel_time')
 
-        # Add the coordinates and calculate distance
-        for node in path[:-1]:  # Exclude last node to avoid duplicates
+        for node in path[:-1]:
             route_coords.append((G.nodes[node]['y'], G.nodes[node]['x']))
             if len(route_coords) > 1:
-                # Calculate distance between consecutive points using Haversine formula
                 last = route_coords[-2]
                 current = route_coords[-1]
                 total_distance += haversine_distance(
@@ -117,7 +109,6 @@ def find_tsp_route(G, delivery_points, center=None):
                     current[0], current[1]
                 )
 
-    # Add the final point
     last_node = ox.nearest_nodes(G, X=ordered_points[-1][1], Y=ordered_points[-1][0])
     snapped_nodes.append(last_node)
     route_coords.append((G.nodes[last_node]['y'], G.nodes[last_node]['x']))
@@ -125,3 +116,27 @@ def find_tsp_route(G, delivery_points, center=None):
     computation_time = time.time() - start_time
 
     return route_coords, total_travel_time, total_distance, computation_time, snapped_nodes
+
+
+def get_largest_connected_component(G):
+    """
+    Returns the largest strongly connected component of the graph.
+
+    In a road network, a strongly connected component is a subset of nodes where
+    every node can be reached from every other node. This is important for
+    ensuring valid routes can be found between any two points.
+
+    Args:
+        G: NetworkX graph representing the road network
+
+    Returns:
+        NetworkX graph containing only the largest connected component
+    """
+    if G.is_directed():
+        connected_components = list(nx.strongly_connected_components(G))
+    else:
+        connected_components = list(nx.connected_components(G))
+
+    largest_component = max(connected_components, key=len)
+
+    return G.subgraph(largest_component).copy()
