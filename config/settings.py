@@ -19,6 +19,17 @@ PACKAGE_CONSTRAINTS = {
     },
     'volume': {  # in cubic meters (m³)
         'min': 0.001,  # 1 liter
-        'max': 0.5     # 500 liters
+        'max': 0.5  # 500 liters
+    }
+}
+
+DRIVER_CONSTRAINTS = {
+    'weight_capacity': {  # in kg
+        'min': 500.0,
+        'max': 2000.0
+    },
+    'volume_capacity': {  # in cubic meters
+        'min': 5.0,
+        'max': 20.0
     }
 }

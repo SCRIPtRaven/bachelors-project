@@ -3,6 +3,7 @@ import os
 import folium
 import osmnx as ox
 from PyQt5 import QtCore, QtWidgets, QtWebEngineWidgets, QtWebChannel
+from PyQt5.QtWidgets import QLabel
 
 from config.paths import MAP_HTML, get_graph_file_path, get_travel_times_path
 from config.settings import ROUTE_COLORS
@@ -44,6 +45,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
         self.distance_label = None
 
         self.snapped_delivery_points = []
+        self.delivery_drivers = []
 
         self.channel = QtWebChannel.QWebChannel()
         self.bridge = WebBridge()
@@ -392,3 +394,54 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
 
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Error generating deliveries: {e}")
+
+    def generate_delivery_drivers(self, num_drivers):
+        """Generate delivery drivers and display their capacities in a scrollable list."""
+        try:
+            self.delivery_drivers = GeolocationService.generate_delivery_drivers(num_drivers)
+
+            if self.time_label:
+                stats_layout = self.time_label.parent().layout()
+
+                for i in reversed(range(stats_layout.count())):
+                    widget = stats_layout.itemAt(i).widget()
+                    if isinstance(widget, QtWidgets.QScrollArea) or (
+                            isinstance(widget, QtWidgets.QLabel) and widget.text() == "Delivery Drivers:"):
+                        widget.setParent(None)
+
+                header_label = QtWidgets.QLabel("Delivery Drivers:")
+                header_label.setStyleSheet("font-weight: bold; padding: 5px;")
+                stats_layout.addWidget(header_label)
+
+                scroll_area = QtWidgets.QScrollArea()
+                scroll_area.setWidgetResizable(True)
+                scroll_area.setMinimumHeight(150)
+                scroll_area.setMaximumHeight(200)
+                scroll_area.setStyleSheet("""
+                    QScrollArea {
+                        border: 1px solid #ddd;
+                        border-radius: 5px;
+                        background: white;
+                    }
+                """)
+
+                driver_container = QtWidgets.QWidget()
+                driver_layout = QtWidgets.QVBoxLayout(driver_container)
+                driver_layout.setSpacing(5)
+                driver_layout.setContentsMargins(5, 5, 5, 5)
+
+                for driver in self.delivery_drivers:
+                    driver_label = QtWidgets.QLabel(
+                        f"Driver {driver.id}: Capacity {driver.weight_capacity}kg, {driver.volume_capacity}m³"
+                    )
+                    driver_label.setStyleSheet("padding: 3px;")
+                    driver_layout.addWidget(driver_label)
+
+                driver_layout.addStretch()
+
+                scroll_area.setWidget(driver_container)
+
+                stats_layout.addWidget(scroll_area)
+
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Error generating drivers: {e}")

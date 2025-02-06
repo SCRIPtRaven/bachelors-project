@@ -3,7 +3,7 @@ import random
 from dataclasses import dataclass
 from typing import Tuple
 
-from config.settings import INNER_POINTS_RATIO, PACKAGE_CONSTRAINTS
+from config.settings import INNER_POINTS_RATIO, PACKAGE_CONSTRAINTS, DRIVER_CONSTRAINTS
 
 
 @dataclass
@@ -11,6 +11,13 @@ class DeliveryPoint:
     coordinates: Tuple[float, float]
     weight: float
     volume: float
+
+
+@dataclass
+class DeliveryDriver:
+    id: int
+    weight_capacity: float  # in kg
+    volume_capacity: float  # in cubic meters
 
 
 class GeolocationService:
@@ -97,3 +104,29 @@ class GeolocationService:
                 ))
 
         return inner_points + outer_points
+
+    @staticmethod
+    def generate_random_driver_properties():
+        """Generate random weight and volume capacities within defined constraints."""
+        weight_capacity = random.uniform(
+            DRIVER_CONSTRAINTS['weight_capacity']['min'],
+            DRIVER_CONSTRAINTS['weight_capacity']['max']
+        )
+        volume_capacity = random.uniform(
+            DRIVER_CONSTRAINTS['volume_capacity']['min'],
+            DRIVER_CONSTRAINTS['volume_capacity']['max']
+        )
+        return round(weight_capacity, 2), round(volume_capacity, 3)
+
+    @staticmethod
+    def generate_delivery_drivers(num_drivers):
+        """Generate the specified number of delivery drivers with random capacities."""
+        drivers = []
+        for i in range(num_drivers):
+            weight_capacity, volume_capacity = GeolocationService.generate_random_driver_properties()
+            drivers.append(DeliveryDriver(
+                id=i + 1,
+                weight_capacity=weight_capacity,
+                volume_capacity=volume_capacity
+            ))
+        return drivers
