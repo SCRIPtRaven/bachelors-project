@@ -15,12 +15,12 @@ matplotlib = "^3.9.2"
 folium = "^0.18.0"
 outscraper = "^5.5.0"
 tenacity = "^9.0.0"
-protobuf = "^5.29.1"
 shapely = "^2.0.6"
 tqdm = "^4.67.1"
 pyqt5 = "^5.15.11"
 pyqt5-qt5 = "5.15.2"
 pyqt5-sip = "^12.17.0"
+ortools = "^9.11.4210"
 
 [build-system]
 requires = ["poetry-core"]

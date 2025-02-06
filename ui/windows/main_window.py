@@ -55,6 +55,14 @@ class MainWindow(QWidget):
         self.btn_tsp = QPushButton("Find Shortest Route")
         self.btn_tsp.hide()
 
+        # Driver input and generation
+        self.driver_input = QLineEdit()
+        self.driver_input.setPlaceholderText("Enter number of drivers")
+        self.driver_input.hide()
+
+        self.btn_generate_drivers = QPushButton("Generate Drivers")
+        self.btn_generate_drivers.hide()
+
     def init_layout(self):
         """Set up the initial layout with just the load button"""
         self.main_layout = QVBoxLayout(self)
@@ -74,6 +82,7 @@ class MainWindow(QWidget):
         self.btn_load.clicked.connect(self.handle_load_data)
         self.btn_route.clicked.connect(self.map_widget.compute_route)
         self.map_widget.load_completed.connect(self.show_full_ui)
+        self.btn_generate_drivers.clicked.connect(self.generate_drivers)
 
     def handle_load_data(self):
         """Open city selector dialog and handle the city selection"""
@@ -140,7 +149,7 @@ class MainWindow(QWidget):
         """)
 
         controls_layout = QVBoxLayout(controls_widget)
-        controls_layout.setContentsMargins(20, 20, 20, 20)
+        controls_layout.setContentsMargins(10, 10, 10, 10)
 
         top_section = QWidget()
         top_layout = QVBoxLayout(top_section)
@@ -157,7 +166,13 @@ class MainWindow(QWidget):
         delivery_controls.addWidget(self.delivery_input, 3)
         delivery_controls.addWidget(self.btn_generate_deliveries, 1)
 
+        driver_controls = QHBoxLayout()
+        self.driver_input.setPlaceholderText("Enter number of drivers")
+        driver_controls.addWidget(self.driver_input, 3)
+        driver_controls.addWidget(self.btn_generate_drivers, 1)
+
         bottom_layout.addLayout(delivery_controls)
+        bottom_layout.addLayout(driver_controls)
         bottom_layout.addWidget(self.btn_tsp)
 
         controls_layout.addWidget(top_section, 1)
@@ -212,6 +227,9 @@ class MainWindow(QWidget):
         self.btn_generate_deliveries.show()
         self.btn_tsp.show()
 
+        self.driver_input.show()
+        self.btn_generate_drivers.show()
+
     def generate_deliveries(self):
         """Generate the requested number of delivery points"""
         num_deliveries = self.delivery_input.text()
@@ -221,3 +239,13 @@ class MainWindow(QWidget):
 
         num_deliveries = int(num_deliveries)
         self.map_widget.generate_delivery_points(num_deliveries)
+
+    def generate_drivers(self):
+        """Generate the requested number of delivery drivers"""
+        num_drivers = self.driver_input.text()
+        if not num_drivers.isdigit():
+            QMessageBox.warning(self, "Invalid Input", "Please enter a valid number of drivers.")
+            return
+
+        num_drivers = int(num_drivers)
+        self.map_widget.generate_delivery_drivers(num_drivers)
