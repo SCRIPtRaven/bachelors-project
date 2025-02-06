@@ -132,21 +132,11 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             self.load_map()
 
     # ----------------- WORKERS & LOAD/SAVE -----------------
-    def download_graph_data(self):
-        self.worker = DownloadGraphWorker()
-        self.worker.finished.connect(self.on_download_finished)
-        self.worker.start()
-
-    def on_download_finished(self, success, message):
-        if success:
-            QtWidgets.QMessageBox.information(self, "Success", "Graph data downloaded and saved successfully.")
-        else:
-            QtWidgets.QMessageBox.critical(self, "Error", message)
-
     def load_graph_data(self):
         if self.G is not None:
             QtWidgets.QMessageBox.information(self, "Information", "Graph data is already loaded.")
             return
+
         try:
             self.G = graph_manager.load_graph()
             # Optional: load adjusted times
@@ -154,10 +144,31 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                 graph_manager.update_travel_times_from_csv(self.G)
             QtWidgets.QMessageBox.information(self, "Information", "Graph data loaded successfully.")
         except FileNotFoundError:
-            QtWidgets.QMessageBox.warning(self, "File Not Found",
-                                          "Graph data file not found. Please download the data.")
+            reply = QtWidgets.QMessageBox.question(
+                self,
+                "File Not Found",
+                "Graph data file not found. Would you like to download it?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+            )
+
+            if reply == QtWidgets.QMessageBox.Yes:
+                self.worker = DownloadGraphWorker()
+                self.worker.finished.connect(self.on_download_and_load_finished)
+                self.worker.start()
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Error loading data:\n{e}")
+
+    def on_download_and_load_finished(self, success, message):
+        if success:
+            try:
+                self.G = graph_manager.load_graph()
+                if os.path.isfile(TRAVEL_TIMES_CSV):
+                    graph_manager.update_travel_times_from_csv(self.G)
+                QtWidgets.QMessageBox.information(self, "Success", "Graph data downloaded and loaded successfully.")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Error", f"Error loading downloaded data:\n{e}")
+        else:
+            QtWidgets.QMessageBox.critical(self, "Error", message)
 
     def compute_route(self):
         if self.G is None:

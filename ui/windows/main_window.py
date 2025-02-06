@@ -26,7 +26,6 @@ class MainWindow(QWidget):
         self.stats_layout.addStretch()
 
         # Buttons and line edits
-        self.btn_download = QPushButton("Download Data")
         self.btn_load = QPushButton("Load Data")
         self.btn_route = QPushButton("Compute Route")
 
@@ -39,13 +38,11 @@ class MainWindow(QWidget):
         # Connect signals
         self.btn_generate_deliveries.clicked.connect(self.generate_deliveries)
         self.btn_tsp.clicked.connect(self.map_widget.find_shortest_route)
-        self.btn_download.clicked.connect(self.map_widget.download_graph_data)
         self.btn_load.clicked.connect(self.map_widget.load_graph_data)
         self.btn_route.clicked.connect(self.map_widget.compute_route)
 
         # Layout
         button_layout = QHBoxLayout()
-        button_layout.addWidget(self.btn_download)
         button_layout.addWidget(self.btn_load)
         button_layout.addWidget(self.btn_route)
 
