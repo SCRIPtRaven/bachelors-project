@@ -1,13 +1,14 @@
 import os
 
 import folium
+import networkx as nx
 import osmnx as ox
 from PyQt5 import QtCore, QtWidgets, QtWebEngineWidgets, QtWebChannel
 
 from config.paths import MAP_HTML, get_graph_file_path, get_travel_times_path
 from config.settings import ROUTE_COLORS
 from data import graph_manager
-from logic.routing import find_tsp_route
+from logic.routing import find_tsp_route, get_largest_connected_component
 from services.geolocation_service import GeolocationService
 from ui.workers.download_worker import DownloadGraphWorker
 from ui.workers.route_worker import ComputeRouteWorker
@@ -26,7 +27,7 @@ class WebBridge(QtCore.QObject):
     def receivePointClicked(self, lat, lng):
         self.pointClicked.emit(lat, lng)
 
-
+# TODO : Implement better separation of concerns for this gargantuan class
 class MapWidget(QtWebEngineWidgets.QWebEngineView):
     load_completed = QtCore.pyqtSignal(bool, str)
 
@@ -176,6 +177,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             travel_times_path = get_travel_times_path(city_name)
 
             self.G = graph_manager.load_graph(filename=graph_path)
+            self.G = get_largest_connected_component(self.G)
 
             self.current_city = city_name
             self.init_map(center, zoom)
@@ -205,6 +207,62 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Error loading data:\n{e}")
             self.load_completed.emit(False, str(e))
+
+    def find_accessible_node(self, lat, lon, search_radius=1000):
+        """
+        Finds the nearest accessible node to the given coordinates within the graph.
+
+        This function implements a robust node-finding algorithm that:
+        1. Searches for nodes within an expanding radius
+        2. Verifies that found nodes are actually in our graph
+        3. Ensures nodes are connected to the main road network
+        4. Handles edge cases and errors gracefully
+
+        Args:
+            lat: Latitude of the desired location
+            lon: Longitude of the desired location
+            search_radius: Initial search radius in meters, expands if needed
+
+        Returns:
+            tuple: (node_id, (node_lat, node_lon)) for the found node
+
+        Raises:
+            ValueError: If no suitable node can be found within maximum search radius
+        """
+        if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+            raise ValueError(f"Invalid coordinates: lat={lat}, lon={lon}")
+
+        if not hasattr(self, 'center_node'):
+            try:
+                center_y = sum(data['y'] for _, data in self.G.nodes(data=True)) / len(self.G)
+                center_x = sum(data['x'] for _, data in self.G.nodes(data=True)) / len(self.G)
+                self.center_node = ox.nearest_nodes(self.G, X=center_x, Y=center_y)
+            except Exception as e:
+                print(f"Warning: Could not establish center node: {e}")
+                self.center_node = None
+
+        max_radius = 5000
+
+        while search_radius <= max_radius:
+            try:
+                node_id = ox.nearest_nodes(self.G, X=lon, Y=lat)
+
+                if node_id in self.G.nodes:
+                    if self.center_node is None or nx.has_path(self.G, node_id, self.center_node):
+                        node = self.G.nodes[node_id]
+                        return node_id, (node['y'], node['x'])
+                    else:
+                        print(f"Found node {node_id} is not connected to network center")
+                else:
+                    print(f"Found node {node_id} is not in our graph")
+
+            except Exception as e:
+                print(f"Error finding node at ({lat:.6f}, {lon:.6f}): {str(e)}")
+
+            search_radius += 500
+            print(f"Expanding search radius to {search_radius}m")
+
+        raise ValueError(f"No accessible node found near ({lat:.6f}, {lon:.6f})")
 
     def on_download_and_load_finished(self, success, message, city_name):
         """Modified to handle city-specific loading"""
@@ -335,8 +393,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
 
                 driver_delivery_coords = [(lat, lon) for _, (lat, lon, _, _) in driver_deliveries]
 
-                all_coords = [city_center] + driver_delivery_coords
-
                 try:
                     route_coords, driver_time, driver_distance, compute_time, snapped_nodes = find_tsp_route(
                         self.G,
@@ -401,35 +457,49 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             print(f"Detailed error: {e}")
 
     def generate_delivery_points(self, num_points):
+        """
+        Generates delivery points within the graph area, ensuring they're all accessible.
+
+        This function creates random delivery points and ensures each one is mapped to
+        an accessible node in the road network. Points that can't be mapped are skipped
+        with appropriate warning messages.
+        """
         if self.G is None:
-            QtWidgets.QMessageBox.warning(self, "Graph Not Loaded", "Please load the graph data first.")
+            QtWidgets.QMessageBox.warning(self, "Graph Not Loaded",
+                                          "Please load the graph data first.")
             return
 
         try:
-            node_coords = [(data['y'], data['x']) for _, data in self.G.nodes(data=True)]
+            node_coords = [(data['y'], data['x'])
+                           for _, data in self.G.nodes(data=True)]
             min_lat = min(lat for lat, _ in node_coords)
             max_lat = max(lat for lat, _ in node_coords)
             min_lon = min(lon for _, lon in node_coords)
             max_lon = max(lon for _, lon in node_coords)
 
             delivery_points = GeolocationService.generate_delivery_points(
-                (min_lat, max_lat, min_lon, max_lon), num_points
+                (min_lat, max_lat, min_lon, max_lon),
+                num_points
             )
 
             self.snapped_delivery_points = []
             center, zoom = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
             self.init_map(center, zoom)
 
+            successful_points = 0
+            skipped_points = 0
+
             for point in delivery_points:
                 try:
                     lat, lon = point.coordinates
-                    nearest_node = ox.nearest_nodes(self.G, X=lon, Y=lat)
-                    snapped_lat = self.G.nodes[nearest_node]['y']
-                    snapped_lon = self.G.nodes[nearest_node]['x']
-                    self.snapped_delivery_points.append((snapped_lat, snapped_lon, point.weight, point.volume))
+                    node_id, (snapped_lat, snapped_lon) = self.find_accessible_node(lat, lon)
+
+                    self.snapped_delivery_points.append(
+                        (snapped_lat, snapped_lon, point.weight, point.volume)
+                    )
 
                     popup_text = (
-                        f'Delivery Point<br>'
+                        f'Delivery Point {successful_points + 1}<br>'
                         f'Weight: {point.weight} kg<br>'
                         f'Volume: {point.volume} m³'
                     )
@@ -439,13 +509,32 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                         popup=popup_text,
                         icon=folium.Icon(color='orange', icon='info-sign')
                     ).add_to(self.map)
+
+                    successful_points += 1
+
+                except ValueError as ve:
+                    print(f"Skipping inaccessible point ({lat:.6f}, {lon:.6f})")
+                    skipped_points += 1
                 except Exception as e:
-                    print(f"Skipping point {point.coordinates}: {e}")
+                    print(f"Error processing point ({lat:.6f}, {lon:.6f}): {str(e)}")
+                    skipped_points += 1
+
+            if skipped_points > 0:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Delivery Points Generated",
+                    f"Successfully placed {successful_points} delivery points.\n"
+                    f"Skipped {skipped_points} inaccessible points."
+                )
 
             self.load_map()
 
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Error generating deliveries: {e}")
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Error",
+                f"Error generating deliveries: {str(e)}"
+            )
 
     def generate_delivery_drivers(self, num_drivers):
         """Generate delivery drivers and display their capacities in a scrollable list."""
