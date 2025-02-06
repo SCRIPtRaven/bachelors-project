@@ -82,52 +82,135 @@ class MainWindow(QWidget):
         selector.exec_()
 
     def show_full_ui(self, success):
-        """Transition to the full UI after successful data load"""
+        """
+        Creates the main application interface after successful data loading.
+        The interface consists of a map panel on the left and a control/stats panel on the right.
+        """
         if not success:
             return
 
         self.btn_load.setParent(None)
 
-        main_content_layout = QVBoxLayout()
+        main_content_layout = QHBoxLayout()
+        main_content_layout.setSpacing(0)
 
-        content_layout = QHBoxLayout()
-        content_layout.addWidget(self.map_widget, stretch=3)
-        content_layout.addWidget(self.stats_widget, stretch=1)
+        map_container = QWidget()
+        map_layout = QVBoxLayout(map_container)
+        map_layout.addWidget(self.map_widget)
+        map_layout.setContentsMargins(0, 0, 0, 0)
 
-        button_panel = QWidget()
-        button_panel_layout = QVBoxLayout(button_panel)
+        right_panel = QWidget()
+        right_panel.setFixedWidth(400)
+        right_panel.setStyleSheet("""
+            QWidget {
+                background-color: #E5E5E5;
+            }
+        """)
 
-        route_layout = QHBoxLayout()
-        route_layout.addWidget(self.btn_route)
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setSpacing(20)
+        right_layout.setContentsMargins(0, 0, 0, 0)
 
-        delivery_layout = QHBoxLayout()
-        delivery_layout.addWidget(self.delivery_input)
-        delivery_layout.addWidget(self.btn_generate_deliveries)
-        delivery_layout.addWidget(self.btn_tsp)
+        controls_widget = QWidget()
+        controls_widget.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 15px;
+                margin: 20px;
+            }
+            QPushButton {
+                min-height: 35px;
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                padding: 5px 15px;
+                box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+            }
+            QPushButton:hover {
+                background-color: #f8f8f8;
+                box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.15);
+            }
+            QLineEdit {
+                min-height: 35px;
+                padding: 0 10px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                font-size: 13px;
+            }
+        """)
 
-        button_panel_layout.addLayout(route_layout)
-        button_panel_layout.addLayout(delivery_layout)
+        controls_layout = QVBoxLayout(controls_widget)
+        controls_layout.setContentsMargins(20, 20, 20, 20)
 
-        main_content_layout.addLayout(content_layout, stretch=1)
-        main_content_layout.addWidget(button_panel)
+        top_section = QWidget()
+        top_layout = QVBoxLayout(top_section)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.addWidget(self.btn_route)
+        top_layout.addStretch()
 
-        self.map_widget.show()
-        self.stats_widget.show()
-        self.btn_route.show()
-        self.delivery_input.show()
-        self.btn_generate_deliveries.show()
-        self.btn_tsp.show()
+        bottom_section = QWidget()
+        bottom_layout = QVBoxLayout(bottom_section)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
 
-        QWidget().setLayout(self.main_layout)
-        self.main_layout = main_content_layout
-        self.setLayout(self.main_layout)
+        delivery_controls = QHBoxLayout()
+        self.delivery_input.setPlaceholderText("Enter number of delivery points")
+        delivery_controls.addWidget(self.delivery_input, 3)
+        delivery_controls.addWidget(self.btn_generate_deliveries, 1)
 
-        # Set up the stats labels
+        bottom_layout.addLayout(delivery_controls)
+        bottom_layout.addWidget(self.btn_tsp)
+
+        controls_layout.addWidget(top_section, 1)
+        controls_layout.addWidget(bottom_section, 0)
+
+        stats_widget = QWidget()
+        stats_widget.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 15px;
+                margin: 20px;
+            }
+            QLabel {
+                padding: 8px;
+                margin: 5px;
+                font-size: 14px;
+                color: #333;
+            }
+        """)
+
+        stats_layout = QVBoxLayout(stats_widget)
+        stats_layout.setContentsMargins(20, 20, 20, 20)
+
+        self.time_taken_label = QLabel("Time taken to compute route: N/A")
+        self.total_travel_time_label = QLabel("Total travel time: N/A")
+        self.total_distance_label = QLabel("Total distance: N/A")
+
+        stats_layout.addWidget(self.time_taken_label)
+        stats_layout.addWidget(self.total_travel_time_label)
+        stats_layout.addWidget(self.total_distance_label)
+        stats_layout.addStretch()
+
         self.map_widget.set_stats_labels(
             self.time_taken_label,
             self.total_travel_time_label,
             self.total_distance_label
         )
+
+        right_layout.addWidget(controls_widget, 1)
+        right_layout.addWidget(stats_widget, 1)
+
+        main_content_layout.addWidget(map_container, 1)
+        main_content_layout.addWidget(right_panel, 0)
+
+        QWidget().setLayout(self.main_layout)
+        self.main_layout = main_content_layout
+        self.setLayout(self.main_layout)
+
+        self.map_widget.show()
+        self.btn_route.show()
+        self.delivery_input.show()
+        self.btn_generate_deliveries.show()
+        self.btn_tsp.show()
 
     def generate_deliveries(self):
         """Generate the requested number of delivery points"""
