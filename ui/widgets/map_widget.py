@@ -3,7 +3,6 @@ import os
 import folium
 import osmnx as ox
 from PyQt5 import QtCore, QtWidgets, QtWebEngineWidgets, QtWebChannel
-from PyQt5.QtWidgets import QLabel
 
 from config.paths import MAP_HTML, get_graph_file_path, get_travel_times_path
 from config.settings import ROUTE_COLORS
@@ -276,77 +275,130 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             QtWidgets.QMessageBox.critical(self, "Error", message)
 
     # ----------------- TSP -----------------
+    def get_folium_colors(self):
+        """
+        Returns a list of folium-supported colors for routes and markers.
+        """
+        return [
+            'blue', 'red', 'green', 'purple', 'orange', 'darkred', 'lightred',
+            'darkblue', 'darkgreen', 'cadetblue', 'darkpurple', 'pink'
+        ]
+
     def find_shortest_route(self):
         """
-        Collect all folium.Marker's lat-lng and their associated properties,
-        then run TSP on them plus the center.
+        For each driver, randomly assign a subset of delivery points and compute
+        their individual TSP routes from and back to the center.
         """
         if self.G is None:
             QtWidgets.QMessageBox.warning(self, "Graph Not Loaded", "Please load the graph data first.")
             return
 
-        # When we generate delivery points, we store them in self.snapped_delivery_points
-        # as tuples of (lat, lon, weight, volume)
         if not self.snapped_delivery_points:
-            QtWidgets.QMessageBox.warning(self, "No Deliveries", "No delivery points found on the map.")
+            QtWidgets.QMessageBox.warning(self, "No Deliveries", "Please generate delivery points first.")
+            return
+
+        if not self.delivery_drivers:
+            QtWidgets.QMessageBox.warning(self, "No Drivers", "Please generate drivers first.")
             return
 
         try:
             city_center, _ = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
 
-            # Extract just the coordinates for the TSP algorithm
-            delivery_coords = [(point[0], point[1]) for point in self.snapped_delivery_points]
+            import random
+            delivery_assignments = {driver.id: [] for driver in self.delivery_drivers}
+            available_deliveries = list(enumerate(self.snapped_delivery_points))
 
-            route_coords, total_travel_time, total_distance, compute_time, snapped_nodes = find_tsp_route(
-                self.G,
-                delivery_coords,
-                center=city_center
-            )
+            while available_deliveries:
+                for driver in self.delivery_drivers:
+                    if not available_deliveries:
+                        break
+                    delivery_index, delivery = available_deliveries.pop(
+                        random.randrange(len(available_deliveries))
+                    )
+                    delivery_assignments[driver.id].append((delivery_index, delivery))
+
+            colors = self.get_folium_colors()
+            if len(colors) < len(self.delivery_drivers):
+                colors = colors * (len(self.delivery_drivers) // len(colors) + 1)
 
             center, zoom = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
             self.init_map(center, zoom)
-            folium.PolyLine(
-                locations=route_coords,
-                color=ROUTE_COLORS['tsp'],
-                weight=5,
-                opacity=0.7,
-                tooltip="A* TSP Route"
-            ).add_to(self.map)
 
-            # Add markers with the stored properties
-            for i, node_id in enumerate(snapped_nodes):
-                lat, lon = self.G.nodes[node_id]['y'], self.G.nodes[node_id]['x']
-                color = 'blue' if i != 0 else 'red'
-                icon = 'info-sign' if i != 0 else 'home'
+            total_travel_time = 0
+            total_distance = 0
+            max_compute_time = 0
 
-                if i == 0:
-                    popup_text = 'Center'
-                else:
-                    # Get the properties from the original delivery point
-                    # We subtract 1 from i because the center point is at index 0
-                    _, _, weight, volume = self.snapped_delivery_points[i - 1]
-                    popup_text = (
-                        f'Delivery {i}<br>'
-                        f'Weight: {weight} kg<br>'
-                        f'Volume: {volume} m³'
+            for driver_idx, driver in enumerate(self.delivery_drivers):
+                driver_deliveries = delivery_assignments[driver.id]
+                if not driver_deliveries:
+                    continue
+
+                driver_delivery_coords = [(lat, lon) for _, (lat, lon, _, _) in driver_deliveries]
+
+                all_coords = [city_center] + driver_delivery_coords
+
+                try:
+                    route_coords, driver_time, driver_distance, compute_time, snapped_nodes = find_tsp_route(
+                        self.G,
+                        driver_delivery_coords,
+                        center=city_center
                     )
 
-                folium.Marker(
-                    location=(lat, lon),
-                    popup=popup_text,
-                    icon=folium.Icon(color=color, icon=icon)
-                ).add_to(self.map)
+                    total_travel_time += driver_time
+                    total_distance += driver_distance
+                    max_compute_time = max(max_compute_time, compute_time)
+
+                    color = colors[driver_idx % len(colors)]
+                    folium.PolyLine(
+                        locations=route_coords,
+                        color=color,
+                        weight=5,
+                        opacity=0.7,
+                        tooltip=f"Driver {driver.id} Route"
+                    ).add_to(self.map)
+
+                    for node_idx, node_id in enumerate(snapped_nodes):
+                        lat, lon = self.G.nodes[node_id]['y'], self.G.nodes[node_id]['x']
+
+                        if node_idx == 0:
+                            popup_text = f'Center (Driver {driver.id})'
+                            icon_type = 'home'
+                        else:
+                            delivery_idx = node_idx - 1
+                            if delivery_idx < len(driver_deliveries):
+                                _, delivery = driver_deliveries[delivery_idx]
+                                _, _, weight, volume = delivery
+                                popup_text = (
+                                    f'Delivery (Driver {driver.id})<br>'
+                                    f'Weight: {weight} kg<br>'
+                                    f'Volume: {volume} m³'
+                                )
+                                icon_type = 'info-sign'
+                            else:
+                                continue
+
+                        folium.Marker(
+                            location=(lat, lon),
+                            popup=popup_text,
+                            icon=folium.Icon(color=color, icon=icon_type)
+                        ).add_to(self.map)
+
+                except Exception as e:
+                    print(f"Error computing route for driver {driver.id}: {e}")
+                    continue
 
             if self.time_label:
-                self.time_label.setText(f"TSP solved in {compute_time:.2f} s")
+                self.time_label.setText(f"Routes computed in {max_compute_time:.2f} s")
             if self.travel_time_label:
                 self.travel_time_label.setText(f"Total travel time: {total_travel_time / 60:.2f} min")
             if self.distance_label:
                 self.distance_label.setText(f"Total distance: {total_distance / 1000:.2f} km")
 
             self.load_map()
+
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"TSP error: {e}")
+            QtWidgets.QMessageBox.critical(self, "Error", f"Route planning error: {str(e)}")
+            print(f"Detailed error: {e}")
 
     def generate_delivery_points(self, num_points):
         if self.G is None:

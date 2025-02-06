@@ -3,7 +3,8 @@ import time
 import networkx as nx
 import osmnx as ox
 
-from logic.heuristics import euclidean_heuristic
+from logic.tsp_solver import solve_tsp
+from utils.distance_utils import haversine_distance
 
 
 def compute_shortest_route(G, origin_latlng, destination_latlng):
@@ -54,94 +55,73 @@ def compute_shortest_route(G, origin_latlng, destination_latlng):
 
 def find_tsp_route(G, delivery_points, center=None):
     """
-    Solve the TSP for all delivery points plus the city center on G using A* for pairwise paths.
+    Find the optimal TSP route using OR-Tools solver.
 
-    Parameters:
-        G: NetworkX graph representing the road network
+    This function takes a road network graph and a set of delivery points, then finds
+    the most efficient route that visits all points and returns to the starting location.
+    It uses the Google OR-Tools library for solving the TSP and detailed path planning
+    through the road network.
+
+    Args:
+        G: NetworkX graph of the road network
         delivery_points: List of (lat, lon) tuples for delivery locations
-        center: Tuple of (lat, lon) for the city center. If None, the geometric center
-               of the graph will be used.
+        center: Tuple of (lat, lon) for the starting/ending point
+
+    Returns:
+        route_coords: List of (lat, lon) coordinates forming the complete route
+        total_travel_time: Total time in seconds
+        total_distance: Total distance in meters
+        computation_time: Time taken to compute the route
+        snapped_nodes: List of node IDs in the route order
     """
+    start_time = time.time()
+
     if center is None:
+        # Calculate the geometric center of the graph if no center is provided
         lats = [data['y'] for _, data in G.nodes(data=True)]
         lons = [data['x'] for _, data in G.nodes(data=True)]
         center = (sum(lats) / len(lats), sum(lons) / len(lons))
 
-    delivery_points.insert(0, center)
+    # Add center as first point
+    all_points = [center] + delivery_points
 
+    # Solve TSP using OR-Tools
+    ordered_points, total_travel_time = solve_tsp(G, all_points)
+
+    # Convert the solution into a detailed route
+    route_coords = []
     snapped_nodes = []
-    for lat, lon in delivery_points:
-        snapped = ox.nearest_nodes(G, X=lon, Y=lat)
-        snapped_nodes.append(snapped)
+    total_distance = 0
 
-    node_count = len(snapped_nodes)
-    T = {}
-    all_paths = {}
+    for i in range(len(ordered_points) - 1):
+        start = ordered_points[i]
+        end = ordered_points[i + 1]
 
-    for i in range(node_count):
-        T[i] = {}
-        all_paths[i] = {}
-        for j in range(node_count):
-            if i == j:
-                T[i][j] = 0
-                all_paths[i][j] = [snapped_nodes[i]]
-            else:
-                try:
-                    path = nx.astar_path(
-                        G=G,
-                        source=snapped_nodes[i],
-                        target=snapped_nodes[j],
-                        heuristic=lambda u, v: euclidean_heuristic(G, u, v),
-                        weight='travel_time'
-                    )
-                    travel_time_sum = 0
-                    for u, v in zip(path[:-1], path[1:]):
-                        edge_data = G.get_edge_data(u, v)
-                        edge_data = edge_data[list(edge_data.keys())[0]]
-                        travel_time_sum += edge_data.get('travel_time', 999999)
-                    T[i][j] = travel_time_sum
-                    all_paths[i][j] = path
-                except nx.NetworkXNoPath:
-                    T[i][j] = float('inf')
-                    all_paths[i][j] = []
+        # Find nearest nodes in the road network
+        start_node = ox.nearest_nodes(G, X=start[1], Y=start[0])
+        end_node = ox.nearest_nodes(G, X=end[1], Y=end[0])
+        snapped_nodes.append(start_node)
 
-    tsp_graph = nx.DiGraph()
-    for i in range(node_count):
-        for j in range(node_count):
-            if i != j:
-                cost = T[i][j]
-                tsp_graph.add_edge(i, j, weight=cost)
+        # Get the detailed path between these points
+        path = nx.shortest_path(G, start_node, end_node, weight='travel_time')
 
-    t0 = time.time()
-    tsp_node_path = nx.approximation.traveling_salesman_problem(
-        tsp_graph, cycle=True, weight='weight'
-    )
-    compute_time = time.time() - t0
+        # Add the coordinates and calculate distance
+        for node in path[:-1]:  # Exclude last node to avoid duplicates
+            route_coords.append((G.nodes[node]['y'], G.nodes[node]['x']))
+            if len(route_coords) > 1:
+                # Calculate distance between consecutive points using Haversine formula
+                last = route_coords[-2]
+                current = route_coords[-1]
+                total_distance += haversine_distance(
+                    last[0], last[1],
+                    current[0], current[1]
+                )
 
-    total_distance = 0.0
-    total_travel_time = 0.0
-    final_path_nodes = []
+    # Add the final point
+    last_node = ox.nearest_nodes(G, X=ordered_points[-1][1], Y=ordered_points[-1][0])
+    snapped_nodes.append(last_node)
+    route_coords.append((G.nodes[last_node]['y'], G.nodes[last_node]['x']))
 
-    for idx in range(len(tsp_node_path) - 1):
-        i = tsp_node_path[idx]
-        j = tsp_node_path[idx + 1]
-        segment = all_paths[i][j]
-        final_path_nodes.extend(segment[:-1])
+    computation_time = time.time() - start_time
 
-        for u, v in zip(segment[:-1], segment[1:]):
-            e_data = G.get_edge_data(u, v)
-            e_data = e_data[list(e_data.keys())[0]]
-            dist = e_data.get('length', 0)
-            ttime = e_data.get('travel_time', 0)
-            total_distance += dist
-            total_travel_time += ttime
-
-    if tsp_node_path and len(tsp_node_path) > 1:
-        last_idx = tsp_node_path[-1]
-        last_segment = all_paths[tsp_node_path[-2]][last_idx]
-        if last_segment:
-            final_path_nodes.append(last_segment[-1])
-
-    final_route_coords = [(G.nodes[n]['y'], G.nodes[n]['x']) for n in final_path_nodes]
-
-    return final_route_coords, total_travel_time, total_distance, compute_time, snapped_nodes
+    return route_coords, total_travel_time, total_distance, computation_time, snapped_nodes
