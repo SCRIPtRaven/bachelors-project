@@ -3,7 +3,8 @@ import os
 import osmnx as ox
 import pandas as pd
 
-DATA_FILENAME = "resources/kaunas.graphml"
+from config.paths import DATA_FILENAME, TRAVEL_TIMES_CSV
+from config.settings import DEFAULT_NETWORK_TYPE
 
 
 def download_and_save_graph(place_name="Kaunas, Lithuania", filename=DATA_FILENAME):
@@ -11,7 +12,7 @@ def download_and_save_graph(place_name="Kaunas, Lithuania", filename=DATA_FILENA
     Downloads OSM data for the given place, adds speeds and travel times,
     and saves the graph as GraphML.
     """
-    G = ox.graph_from_place(place_name, network_type='drive')
+    G = ox.graph_from_place(place_name, network_type=DEFAULT_NETWORK_TYPE)
     G = ox.add_edge_speeds(G)
     G = ox.add_edge_travel_times(G)
     ox.save_graphml(G, filename)
@@ -28,12 +29,12 @@ def load_graph(filename=DATA_FILENAME):
     return G
 
 
-def update_travel_times_from_csv(G, csv_file="resources/adjusted_travel_times.csv"):
+def update_travel_times_from_csv(G):
     """
     Read adjusted travel times from CSV and update the graph's edges.
     """
     try:
-        adjusted_data = pd.read_csv(csv_file)
+        adjusted_data = pd.read_csv(TRAVEL_TIMES_CSV)
         node_cache = {}
 
         def get_node(lat, lon):
