@@ -52,11 +52,20 @@ def compute_shortest_route(G, origin_latlng, destination_latlng):
             cumulative_distances)
 
 
-def find_tsp_route(G, delivery_points, center=(54.8985, 23.9036)):
+def find_tsp_route(G, delivery_points, center=None):
     """
-    Solve the TSP for all delivery_points plus the city center on G using A* for pairwise paths.
-    Returns (final_route_coords, total_travel_time, total_distance, compute_time, snapped_nodes).
+    Solve the TSP for all delivery points plus the city center on G using A* for pairwise paths.
+
+    Parameters:
+        G: NetworkX graph representing the road network
+        delivery_points: List of (lat, lon) tuples for delivery locations
+        center: Tuple of (lat, lon) for the city center. If None, the geometric center
+               of the graph will be used.
     """
+    if center is None:
+        lats = [data['y'] for _, data in G.nodes(data=True)]
+        lons = [data['x'] for _, data in G.nodes(data=True)]
+        center = (sum(lats) / len(lats), sum(lons) / len(lons))
 
     delivery_points.insert(0, center)
 

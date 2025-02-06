@@ -171,5 +171,6 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-resources/map.html
-resources/kaunas.graphml
+resources/*
+!resources/qwebchannel.js
+!resources/kaunas_travel_times.csv

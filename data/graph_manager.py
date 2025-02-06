@@ -3,15 +3,18 @@ import os
 import osmnx as ox
 import pandas as pd
 
-from config.paths import DATA_FILENAME, TRAVEL_TIMES_CSV
 from config.settings import DEFAULT_NETWORK_TYPE
 
 
-def download_and_save_graph(place_name="Kaunas, Lithuania", filename=DATA_FILENAME):
+def download_and_save_graph(place_name="Kaunas, Lithuania"):
     """
     Downloads OSM data for the given place, adds speeds and travel times,
     and saves the graph as GraphML.
     """
+    from config.paths import get_graph_file_path
+
+    filename = get_graph_file_path(place_name)
+
     G = ox.graph_from_place(place_name, network_type=DEFAULT_NETWORK_TYPE)
     G = ox.add_edge_speeds(G)
     G = ox.add_edge_travel_times(G)
@@ -19,7 +22,7 @@ def download_and_save_graph(place_name="Kaunas, Lithuania", filename=DATA_FILENA
     return True
 
 
-def load_graph(filename=DATA_FILENAME):
+def load_graph(filename):
     """
     Load the graph from GraphML if it exists. Raises an error if something goes wrong.
     """
@@ -29,12 +32,24 @@ def load_graph(filename=DATA_FILENAME):
     return G
 
 
-def update_travel_times_from_csv(G):
+def update_travel_times_from_csv(G, csv_path):
     """
     Read adjusted travel times from CSV and update the graph's edges.
+
+    Parameters:
+        G: NetworkX graph to update
+        csv_path: Path to the CSV file containing adjusted travel times
+
+    The CSV file should contain columns:
+    - origin_lat: Latitude of origin point
+    - origin_lon: Longitude of origin point
+    - destination_lat: Latitude of destination point
+    - destination_lon: Longitude of destination point
+    - travel_time_minutes: Travel time in minutes
     """
     try:
-        adjusted_data = pd.read_csv(TRAVEL_TIMES_CSV)
+        adjusted_data = pd.read_csv(csv_path)
+
         node_cache = {}
 
         def get_node(lat, lon):

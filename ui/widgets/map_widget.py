@@ -4,13 +4,14 @@ import folium
 import osmnx as ox
 from PyQt5 import QtCore, QtWidgets, QtWebEngineWidgets, QtWebChannel
 
-from config.paths import MAP_HTML, TRAVEL_TIMES_CSV
-from config.settings import DEFAULT_CENTER, DEFAULT_ZOOM, ROUTE_COLORS
+from config.paths import MAP_HTML, get_graph_file_path, get_travel_times_path
+from config.settings import ROUTE_COLORS
 from data import graph_manager
 from logic.routing import find_tsp_route
 from services.geolocation_service import GeolocationService
 from ui.workers.download_worker import DownloadGraphWorker
 from ui.workers.route_worker import ComputeRouteWorker
+from utils.geolocation import get_city_coordinates
 
 
 class CustomWebEnginePage(QtWebEngineWidgets.QWebEnginePage):
@@ -27,6 +28,8 @@ class WebBridge(QtCore.QObject):
 
 
 class MapWidget(QtWebEngineWidgets.QWebEngineView):
+    load_completed = QtCore.pyqtSignal(bool, str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -34,6 +37,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
         self.map = None
         self.origin = None
         self.destination = None
+        self.current_city = None
 
         self.time_label = None
         self.travel_time_label = None
@@ -51,7 +55,8 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
 
         self.bridge.pointClicked.connect(self.handle_point_clicked)
 
-        self.init_map()
+        initial_coords, initial_zoom = get_city_coordinates("Kaunas, Lithuania")
+        self.init_map(initial_coords, initial_zoom)
         self.load_map()
 
     def set_stats_labels(self, time_label, travel_time_label, distance_label):
@@ -60,8 +65,28 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
         self.distance_label = distance_label
 
     # ----------------- MAP / FOLIUM -----------------
-    def init_map(self):
-        self.map = folium.Map(location=DEFAULT_CENTER, zoom_start=DEFAULT_ZOOM)
+    def init_map(self, center=None, zoom=None):
+        """
+        Initialize or reinitialize the Folium map with specific coordinates and zoom level.
+
+        This method creates a new Folium map instance centered on the specified location.
+        If no location is provided, it defaults to Kaunas as a fallback. The method is
+        designed to work both during initial widget creation and when switching cities.
+
+        Args:
+            center (tuple, optional): Latitude and longitude coordinates (lat, lon)
+                for the map center. Defaults to None, which will use Kaunas coordinates.
+            zoom (int, optional): Initial zoom level for the map. Defaults to None,
+                which will use zoom level 12 as a sensible default for most cities.
+        """
+        if center is None:
+            center, zoom = get_city_coordinates("Kaunas, Lithuania")
+
+        if zoom is None:
+            zoom = 12
+
+        self.map = folium.Map(location=center, zoom_start=zoom)
+
         self.add_click_listener()
 
     def add_click_listener(self):
@@ -113,6 +138,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
     def handle_point_clicked(self, lat, lng):
         """
         First click sets origin, second sets destination, third resets, etc.
+        When resetting, we maintain the current city's view rather than defaulting back.
         """
         if not self.origin:
             self.origin = (lat, lng)
@@ -124,51 +150,83 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                 self.map)
             self.load_map()
         else:
-            # reset
             self.origin = (lat, lng)
             self.destination = None
-            self.init_map()
+            center, zoom = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
+            self.init_map(center, zoom)
             folium.Marker(location=self.origin, popup='Origin', icon=folium.Icon(color='green')).add_to(self.map)
             self.load_map()
 
     # ----------------- WORKERS & LOAD/SAVE -----------------
-    def load_graph_data(self):
+    def load_graph_data(self, city_name):
+        """
+        Load or download graph data for the specified city.
+        After loading, reinitialize the map to center on the new city.
+        """
         if self.G is not None:
             QtWidgets.QMessageBox.information(self, "Information", "Graph data is already loaded.")
+            self.load_completed.emit(True, "Graph already loaded")
             return
 
         try:
-            self.G = graph_manager.load_graph()
-            # Optional: load adjusted times
-            if os.path.isfile(TRAVEL_TIMES_CSV):
-                graph_manager.update_travel_times_from_csv(self.G)
+            center, zoom = get_city_coordinates(city_name)
+
+            graph_path = get_graph_file_path(city_name)
+            travel_times_path = get_travel_times_path(city_name)
+
+            self.G = graph_manager.load_graph(filename=graph_path)
+
+            self.current_city = city_name
+            self.init_map(center, zoom)
+
+            if os.path.isfile(travel_times_path):
+                graph_manager.update_travel_times_from_csv(self.G, travel_times_path)
+
+            self.load_map()
             QtWidgets.QMessageBox.information(self, "Information", "Graph data loaded successfully.")
+            self.load_completed.emit(True, "Graph loaded successfully")
+
         except FileNotFoundError:
             reply = QtWidgets.QMessageBox.question(
                 self,
                 "File Not Found",
-                "Graph data file not found. Would you like to download it?",
+                f"Graph data file for {city_name} not found. Would you like to download it?",
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
             )
 
             if reply == QtWidgets.QMessageBox.Yes:
-                self.worker = DownloadGraphWorker()
-                self.worker.finished.connect(self.on_download_and_load_finished)
+                self.worker = DownloadGraphWorker(city_name)
+                self.worker.finished.connect(
+                    lambda success, msg: self.on_download_and_load_finished(success, msg, city_name))
                 self.worker.start()
+            else:
+                self.load_completed.emit(False, "User cancelled download")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Error loading data:\n{e}")
+            self.load_completed.emit(False, str(e))
 
-    def on_download_and_load_finished(self, success, message):
+    def on_download_and_load_finished(self, success, message, city_name):
+        """Modified to handle city-specific loading"""
         if success:
             try:
-                self.G = graph_manager.load_graph()
-                if os.path.isfile(TRAVEL_TIMES_CSV):
-                    graph_manager.update_travel_times_from_csv(self.G)
+                graph_path = get_graph_file_path(city_name)
+                travel_times_path = get_travel_times_path(city_name)
+
+                self.G = graph_manager.load_graph(filename=graph_path)
+                self.current_city = city_name
+
+                if os.path.isfile(travel_times_path):
+                    graph_manager.update_travel_times_from_csv(self.G, travel_times_path)
+
                 QtWidgets.QMessageBox.information(self, "Success", "Graph data downloaded and loaded successfully.")
+                self.load_completed.emit(True, "Graph downloaded and loaded successfully")
             except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Error", f"Error loading downloaded data:\n{e}")
+                error_msg = f"Error loading downloaded data:\n{e}"
+                QtWidgets.QMessageBox.critical(self, "Error", error_msg)
+                self.load_completed.emit(False, error_msg)
         else:
             QtWidgets.QMessageBox.critical(self, "Error", message)
+            self.load_completed.emit(False, message)
 
     def compute_route(self):
         if self.G is None:
@@ -235,11 +293,16 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             return
 
         try:
+            city_center, _ = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
+
             route_coords, total_travel_time, total_distance, compute_time, snapped_nodes = find_tsp_route(
-                self.G, delivery_points
+                self.G,
+                delivery_points,
+                center=city_center
             )
 
-            self.init_map()
+            center, zoom = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
+            self.init_map(center, zoom)
             folium.PolyLine(
                 locations=route_coords,
                 color=ROUTE_COLORS['tsp'],
@@ -290,7 +353,8 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             )
 
             self.snapped_delivery_points = []
-            self.init_map()  # Clear existing markers
+            center, zoom = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
+            self.init_map(center, zoom)
 
             for lat, lon in points:
                 try:
