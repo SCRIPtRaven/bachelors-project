@@ -276,28 +276,28 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
     # ----------------- TSP -----------------
     def find_shortest_route(self):
         """
-        Collect all folium.Marker's lat-lng as "delivery points"
-        and run TSP on them plus the center.
+        Collect all folium.Marker's lat-lng and their associated properties,
+        then run TSP on them plus the center.
         """
         if self.G is None:
             QtWidgets.QMessageBox.warning(self, "Graph Not Loaded", "Please load the graph data first.")
             return
 
-        delivery_points = []
-        for child in self.map._children.values():
-            if isinstance(child, folium.Marker):
-                delivery_points.append((child.location[0], child.location[1]))
-
-        if not delivery_points:
+        # When we generate delivery points, we store them in self.snapped_delivery_points
+        # as tuples of (lat, lon, weight, volume)
+        if not self.snapped_delivery_points:
             QtWidgets.QMessageBox.warning(self, "No Deliveries", "No delivery points found on the map.")
             return
 
         try:
             city_center, _ = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
 
+            # Extract just the coordinates for the TSP algorithm
+            delivery_coords = [(point[0], point[1]) for point in self.snapped_delivery_points]
+
             route_coords, total_travel_time, total_distance, compute_time, snapped_nodes = find_tsp_route(
                 self.G,
-                delivery_points,
+                delivery_coords,
                 center=city_center
             )
 
@@ -311,11 +311,24 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                 tooltip="A* TSP Route"
             ).add_to(self.map)
 
+            # Add markers with the stored properties
             for i, node_id in enumerate(snapped_nodes):
                 lat, lon = self.G.nodes[node_id]['y'], self.G.nodes[node_id]['x']
                 color = 'blue' if i != 0 else 'red'
                 icon = 'info-sign' if i != 0 else 'home'
-                popup_text = 'Center' if i == 0 else f'Delivery {i}'
+
+                if i == 0:
+                    popup_text = 'Center'
+                else:
+                    # Get the properties from the original delivery point
+                    # We subtract 1 from i because the center point is at index 0
+                    _, _, weight, volume = self.snapped_delivery_points[i - 1]
+                    popup_text = (
+                        f'Delivery {i}<br>'
+                        f'Weight: {weight} kg<br>'
+                        f'Volume: {volume} m³'
+                    )
+
                 folium.Marker(
                     location=(lat, lon),
                     popup=popup_text,
@@ -334,9 +347,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             QtWidgets.QMessageBox.critical(self, "Error", f"TSP error: {e}")
 
     def generate_delivery_points(self, num_points):
-        """
-        Generate random delivery points using geolocation service, snap them, and add markers.
-        """
         if self.G is None:
             QtWidgets.QMessageBox.warning(self, "Graph Not Loaded", "Please load the graph data first.")
             return
@@ -348,7 +358,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             min_lon = min(lon for _, lon in node_coords)
             max_lon = max(lon for _, lon in node_coords)
 
-            points = GeolocationService.generate_delivery_points(
+            delivery_points = GeolocationService.generate_delivery_points(
                 (min_lat, max_lat, min_lon, max_lon), num_points
             )
 
@@ -356,19 +366,27 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             center, zoom = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
             self.init_map(center, zoom)
 
-            for lat, lon in points:
+            for point in delivery_points:
                 try:
+                    lat, lon = point.coordinates
                     nearest_node = ox.nearest_nodes(self.G, X=lon, Y=lat)
                     snapped_lat = self.G.nodes[nearest_node]['y']
                     snapped_lon = self.G.nodes[nearest_node]['x']
-                    self.snapped_delivery_points.append((snapped_lat, snapped_lon))
+                    self.snapped_delivery_points.append((snapped_lat, snapped_lon, point.weight, point.volume))
+
+                    popup_text = (
+                        f'Delivery Point<br>'
+                        f'Weight: {point.weight} kg<br>'
+                        f'Volume: {point.volume} m³'
+                    )
+
                     folium.Marker(
                         location=(snapped_lat, snapped_lon),
-                        popup='Delivery Point',
+                        popup=popup_text,
                         icon=folium.Icon(color='orange', icon='info-sign')
                     ).add_to(self.map)
                 except Exception as e:
-                    print(f"Skipping point ({lat}, {lon}): {e}")
+                    print(f"Skipping point {point.coordinates}: {e}")
 
             self.load_map()
 

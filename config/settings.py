@@ -11,3 +11,14 @@ ROUTE_COLORS = {
 
 # TSP settings
 INNER_POINTS_RATIO = 0.75  # Ratio of points to generate in inner area
+
+PACKAGE_CONSTRAINTS = {
+    'weight': {  # in kg
+        'min': 0.1,
+        'max': 30.0
+    },
+    'volume': {  # in cubic meters (m³)
+        'min': 0.001,  # 1 liter
+        'max': 0.5     # 500 liters
+    }
+}

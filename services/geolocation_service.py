@@ -1,10 +1,32 @@
 import math
 import random
+from dataclasses import dataclass
+from typing import Tuple
 
-from config.settings import INNER_POINTS_RATIO
+from config.settings import INNER_POINTS_RATIO, PACKAGE_CONSTRAINTS
+
+
+@dataclass
+class DeliveryPoint:
+    coordinates: Tuple[float, float]
+    weight: float
+    volume: float
 
 
 class GeolocationService:
+    @staticmethod
+    def generate_random_package_properties():
+        """Generate random weight and volume within defined constraints."""
+        weight = random.uniform(
+            PACKAGE_CONSTRAINTS['weight']['min'],
+            PACKAGE_CONSTRAINTS['weight']['max']
+        )
+        volume = random.uniform(
+            PACKAGE_CONSTRAINTS['volume']['min'],
+            PACKAGE_CONSTRAINTS['volume']['max']
+        )
+        return round(weight, 2), round(volume, 3)
+
     @staticmethod
     def generate_grid_points(min_lat, max_lat, min_lon, max_lon, num_points):
         try:
@@ -22,10 +44,14 @@ class GeolocationService:
                         break
                     lat = min_lat + i * step_lat + random.uniform(0, step_lat)
                     lon = min_lon + j * step_lon + random.uniform(0, step_lon)
-                    points.append((lat, lon))
+                    weight, volume = GeolocationService.generate_random_package_properties()
+                    points.append(DeliveryPoint(
+                        coordinates=(lat, lon),
+                        weight=weight,
+                        volume=volume
+                    ))
                 if len(points) >= num_points:
                     break
-
             return points
         except Exception as e:
             print(f"Error generating grid points: {e}")
@@ -63,6 +89,11 @@ class GeolocationService:
             lon = random.uniform(min_lon, max_lon)
             if not (inner_bounds[0] <= lat <= inner_bounds[1] and
                     inner_bounds[2] <= lon <= inner_bounds[3]):
-                outer_points.append((lat, lon))
+                weight, volume = GeolocationService.generate_random_package_properties()
+                outer_points.append(DeliveryPoint(
+                    coordinates=(lat, lon),
+                    weight=weight,
+                    volume=volume
+                ))
 
         return inner_points + outer_points
