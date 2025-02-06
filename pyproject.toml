@@ -2,12 +2,13 @@
 name = "bakalauras"
 version = "0.1.0"
 description = ""
-authors = ["Aivaras <aivaras.puskorius@ktu.edu>"]
+authors = ["Aivaras Puškorius <aivaras.puskorius@ktu.edu>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
 osmnx = "^2.0.0"
+pandas = "^2.2.3"
 networkx = "^3.4.2"
 scikit-learn = "^1.5.2"
 matplotlib = "^3.9.2"
@@ -17,7 +18,9 @@ tenacity = "^9.0.0"
 protobuf = "^5.29.1"
 shapely = "^2.0.6"
 tqdm = "^4.67.1"
-
+pyqt5 = "^5.15.11"
+pyqt5-qt5 = "5.15.2"
+pyqt5-sip = "^12.17.0"
 
 [build-system]
 requires = ["poetry-core"]

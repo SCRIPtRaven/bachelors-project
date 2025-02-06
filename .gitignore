@@ -172,5 +172,6 @@ cython_debug/
 .pypirc
 
 /resources/*
+!/resources/
 !/resources/qwebchannel.js
 !/resources/adjusted_travel_times.csv
