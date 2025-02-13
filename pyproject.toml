@@ -5,6 +5,10 @@ description = ""
 authors = ["Aivaras Puškorius <aivaras.puskorius@ktu.edu>"]
 readme = "README.md"
 
+[tools.pytest]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
 [tool.poetry.dependencies]
 python = "^3.12"
 osmnx = "^2.0.0"

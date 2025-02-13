@@ -1,4 +1,5 @@
 import os
+import time
 
 import folium
 import networkx as nx
@@ -8,7 +9,8 @@ from PyQt5 import QtCore, QtWidgets, QtWebEngineWidgets, QtWebChannel
 from config.paths import MAP_HTML, get_graph_file_path, get_travel_times_path
 from config.settings import ROUTE_COLORS
 from data import graph_manager
-from logic.routing import find_tsp_route, get_largest_connected_component
+from logic.delivery_optimizer import SimulatedAnnealingOptimizer
+from logic.routing import get_largest_connected_component
 from services.geolocation_service import GeolocationService
 from ui.workers.download_worker import DownloadGraphWorker
 from ui.workers.route_worker import ComputeRouteWorker
@@ -26,6 +28,7 @@ class WebBridge(QtCore.QObject):
     @QtCore.pyqtSlot(float, float)
     def receivePointClicked(self, lat, lng):
         self.pointClicked.emit(lat, lng)
+
 
 # TODO : Implement better separation of concerns for this gargantuan class
 class MapWidget(QtWebEngineWidgets.QWebEngineView):
@@ -343,126 +346,227 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
         ]
 
     def find_shortest_route(self):
-        """
-        For each driver, randomly assign a subset of delivery points and compute
-        their individual TSP routes from and back to the center.
-        """
-        if self.G is None:
-            QtWidgets.QMessageBox.warning(self, "Graph Not Loaded", "Please load the graph data first.")
-            return
-
-        if not self.snapped_delivery_points:
-            QtWidgets.QMessageBox.warning(self, "No Deliveries", "Please generate delivery points first.")
-            return
-
-        if not self.delivery_drivers:
-            QtWidgets.QMessageBox.warning(self, "No Drivers", "Please generate drivers first.")
+        if self.G is None or not self.snapped_delivery_points or not self.delivery_drivers:
+            QtWidgets.QMessageBox.warning(self, "Missing Data",
+                                          "Please ensure graph data, delivery points, and drivers are all loaded.")
             return
 
         try:
-            city_center, _ = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
+            # Cleanup previous optimization if exists
+            if hasattr(self, 'optimization_thread'):
+                if self.optimization_thread.isRunning():
+                    self.optimization_thread.quit()
+                    self.optimization_thread.wait()
+                self.optimization_thread.deleteLater()
 
-            import random
-            delivery_assignments = {driver.id: [] for driver in self.delivery_drivers}
-            available_deliveries = list(enumerate(self.snapped_delivery_points))
+            if hasattr(self, 'optimizer'):
+                self.optimizer.deleteLater()
 
-            while available_deliveries:
-                for driver in self.delivery_drivers:
-                    if not available_deliveries:
-                        break
-                    delivery_index, delivery = available_deliveries.pop(
-                        random.randrange(len(available_deliveries))
-                    )
-                    delivery_assignments[driver.id].append((delivery_index, delivery))
+            # Reset the optimization map state
+            if hasattr(self, 'optimization_map_initialized'):
+                delattr(self, 'optimization_map_initialized')
 
-            colors = self.get_folium_colors()
-            if len(colors) < len(self.delivery_drivers):
-                colors = colors * (len(self.delivery_drivers) // len(colors) + 1)
+            # Create optimizer instance
+            self.optimizer = SimulatedAnnealingOptimizer(
+                self.delivery_drivers,
+                self.snapped_delivery_points,
+                self.G
+            )
 
-            center, zoom = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
-            self.init_map(center, zoom)
+            # Create and configure thread
+            self.optimization_thread = QtCore.QThread(self)
+            self.optimizer.moveToThread(self.optimization_thread)
 
-            total_travel_time = 0
-            total_distance = 0
-            max_compute_time = 0
+            # Connect signals
+            self.optimization_thread.started.connect(self.optimizer.optimize)
+            self.optimizer.update_visualization.connect(self.update_route_visualization)
+            self.optimizer.finished.connect(self.on_optimization_finished)
+            self.optimizer.finished.connect(self.optimization_thread.quit)
+            self.optimization_thread.finished.connect(self.cleanup_optimization)
 
-            for driver_idx, driver in enumerate(self.delivery_drivers):
-                driver_deliveries = delivery_assignments[driver.id]
-                if not driver_deliveries:
-                    continue
+            # Track start time
+            self.start_time = time.time()
 
-                driver_delivery_coords = [(lat, lon) for _, (lat, lon, _, _) in driver_deliveries]
-
-                try:
-                    route_coords, driver_time, driver_distance, compute_time, snapped_nodes = find_tsp_route(
-                        self.G,
-                        driver_delivery_coords,
-                        center=city_center
-                    )
-
-                    total_travel_time += driver_time
-                    total_distance += driver_distance
-                    max_compute_time = max(max_compute_time, compute_time)
-
-                    color = colors[driver_idx % len(colors)]
-                    folium.PolyLine(
-                        locations=route_coords,
-                        color=color,
-                        weight=5,
-                        opacity=0.7,
-                        tooltip=f"Driver {driver.id} Route"
-                    ).add_to(self.map)
-
-                    for node_idx, node_id in enumerate(snapped_nodes):
-                        lat, lon = self.G.nodes[node_id]['y'], self.G.nodes[node_id]['x']
-
-                        if node_idx == 0:
-                            popup_text = f'Center (Driver {driver.id})'
-                            icon_type = 'home'
-                        else:
-                            delivery_idx = node_idx - 1
-                            if delivery_idx < len(driver_deliveries):
-                                _, delivery = driver_deliveries[delivery_idx]
-                                _, _, weight, volume = delivery
-                                popup_text = (
-                                    f'Delivery (Driver {driver.id})<br>'
-                                    f'Weight: {weight} kg<br>'
-                                    f'Volume: {volume} m³'
-                                )
-                                icon_type = 'info-sign'
-                            else:
-                                continue
-
-                        folium.Marker(
-                            location=(lat, lon),
-                            popup=popup_text,
-                            icon=folium.Icon(color=color, icon=icon_type)
-                        ).add_to(self.map)
-
-                except Exception as e:
-                    print(f"Error computing route for driver {driver.id}: {e}")
-                    continue
-
-            if self.time_label:
-                self.time_label.setText(f"Routes computed in {max_compute_time:.2f} s")
-            if self.travel_time_label:
-                self.travel_time_label.setText(f"Total travel time: {total_travel_time / 60:.2f} min")
-            if self.distance_label:
-                self.distance_label.setText(f"Total distance: {total_distance / 1000:.2f} km")
-
-            self.load_map()
+            # Start optimization
+            self.optimization_thread.start()
 
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Route planning error: {str(e)}")
             print(f"Detailed error: {e}")
 
+    def cleanup_optimization(self):
+        """Clean up optimization resources"""
+        try:
+            if hasattr(self, 'optimization_thread'):
+                self.optimization_thread.deleteLater()
+                delattr(self, 'optimization_thread')
+
+            if hasattr(self, 'optimizer'):
+                self.optimizer.deleteLater()
+                delattr(self, 'optimizer')
+
+        except Exception as e:
+            print(f"Error in cleanup: {e}")
+
+    def update_route_visualization(self, current_solution, unassigned_deliveries):
+        try:
+            city_center, zoom = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
+
+            if not hasattr(self, 'optimization_map_initialized'):
+                self.init_map(city_center, zoom)
+                self.optimization_map_initialized = True
+                self.map_zoom = zoom  # Store zoom level
+
+            # Completely clear the map of all previous layers
+            self.map = folium.Map(
+                location=self.map.location,
+                zoom_start=self.map_zoom  # Use stored zoom level
+            )
+
+            # Create fresh layers
+            self.delivery_layer = folium.FeatureGroup(name='delivery_points')
+            self.routes_layer = folium.FeatureGroup(name='routes')
+            self.map.add_child(self.delivery_layer)
+            self.map.add_child(self.routes_layer)
+
+            colors = self.get_folium_colors()
+            unassigned_set = set(unassigned_deliveries)
+
+            # Create definitive assignment mapping
+            delivery_to_driver = {}
+            conflicting_deliveries = set()
+
+            # First pass - detect conflicts
+            for driver_idx, assignment in enumerate(current_solution):
+                for delivery_idx in assignment.delivery_indices:
+                    if delivery_idx in delivery_to_driver:
+                        # Mark as conflicting if already assigned to another driver
+                        conflicting_deliveries.add(delivery_idx)
+                    else:
+                        delivery_to_driver[delivery_idx] = (driver_idx, assignment.driver_id)
+
+            # Draw routes and points for each driver
+            for driver_idx, assignment in enumerate(current_solution):
+                if not assignment.delivery_indices:
+                    continue
+
+                color = colors[driver_idx % len(colors)]
+                driver_points = []
+
+                # Only process points exclusively assigned to this driver
+                for delivery_idx in assignment.delivery_indices:
+                    if (delivery_idx in delivery_to_driver and
+                            delivery_to_driver[delivery_idx][0] == driver_idx and
+                            delivery_idx not in unassigned_set and
+                            delivery_idx not in conflicting_deliveries):
+                        lat, lon, weight, volume = self.snapped_delivery_points[delivery_idx]
+                        driver_points.append({
+                            'idx': delivery_idx,
+                            'coords': (lat, lon),
+                            'weight': weight,
+                            'volume': volume
+                        })
+
+                # Draw points and route only if we have valid assignments
+                if driver_points:
+                    # Draw delivery points
+                    for point in driver_points:
+                        folium.CircleMarker(
+                            location=point['coords'],
+                            radius=6,
+                            color=color,
+                            fill=True,
+                            fill_opacity=0.7,
+                            popup=(f'Delivery Point {point["idx"] + 1}<br>'
+                                   f'Assigned to Driver {assignment.driver_id}<br>'
+                                   f'Weight: {point["weight"]}kg<br>'
+                                   f'Volume: {point["volume"]}m³')
+                        ).add_to(self.delivery_layer)
+
+                    # Draw route if we have multiple points
+                    if len(driver_points) > 1:
+                        route_coords = [p['coords'] for p in driver_points]
+                        folium.PolyLine(
+                            locations=route_coords,
+                            color=color,
+                            weight=3,
+                            opacity=0.7,
+                            popup=f'Driver {assignment.driver_id} Route'
+                        ).add_to(self.routes_layer)
+
+            # Mark conflicting deliveries in red
+            for delivery_idx in conflicting_deliveries:
+                lat, lon, weight, volume = self.snapped_delivery_points[delivery_idx]
+                folium.CircleMarker(
+                    location=(lat, lon),
+                    radius=6,
+                    color='red',
+                    fill=True,
+                    fill_opacity=0.7,
+                    popup=(f'Delivery Point {delivery_idx + 1}<br>'
+                           f'ERROR: Multiple Assignments<br>'
+                           f'Weight: {weight}kg<br>'
+                           f'Volume: {volume}m³')
+                ).add_to(self.delivery_layer)
+
+            # Add unassigned delivery points
+            for delivery_idx in unassigned_deliveries:
+                if delivery_idx not in delivery_to_driver and delivery_idx not in conflicting_deliveries:
+                    lat, lon, weight, volume = self.snapped_delivery_points[delivery_idx]
+                    folium.CircleMarker(
+                        location=(lat, lon),
+                        radius=6,
+                        color='black',
+                        fill=True,
+                        fill_opacity=0.7,
+                        popup=(f'Delivery Point {delivery_idx + 1}<br>'
+                               f'UNASSIGNED<br>'
+                               f'Weight: {weight}kg<br>'
+                               f'Volume: {volume}m³')
+                    ).add_to(self.delivery_layer)
+
+            self.load_map()
+            QtWidgets.QApplication.processEvents()
+
+        except Exception as e:
+            print(f"Error in visualization update: {e}")
+
+    def on_optimization_finished(self, final_solution, unassigned):
+        """Handle optimization completion"""
+        try:
+            city_center, _ = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
+            total_distance = 0
+            total_time = 0
+
+            for assignment in final_solution:
+                if assignment.delivery_indices:
+                    delivery_coords = [self.snapped_delivery_points[i][0:2]
+                                       for i in assignment.delivery_indices]
+                    delivery_coords = [city_center] + delivery_coords + [city_center]
+                    route_length = self.optimizer.calculate_route_distance(delivery_coords)
+                    total_distance += route_length
+                    total_time += route_length / 10
+
+            # Update statistics labels
+            if self.time_label:
+                self.time_label.setText(f"Routes computed in {time.time() - self.start_time:.2f} s")
+            if self.travel_time_label:
+                self.travel_time_label.setText(f"Total travel time: {total_time / 60:.2f} min")
+            if self.distance_label:
+                self.distance_label.setText(f"Total distance: {total_distance / 1000:.2f} km")
+
+            # Clean up
+            if hasattr(self, 'optimizer'):
+                self.optimizer.deleteLater()
+                delattr(self, 'optimizer')
+
+        except Exception as e:
+            print(f"Error in optimization finished handler: {e}")
+
     def generate_delivery_points(self, num_points):
         """
         Generates delivery points within the graph area, ensuring they're all accessible.
-
-        This function creates random delivery points and ensures each one is mapped to
-        an accessible node in the road network. Points that can't be mapped are skipped
-        with appropriate warning messages.
+        Uses GeolocationService for point generation and snaps points to the road network.
         """
         if self.G is None:
             QtWidgets.QMessageBox.warning(self, "Graph Not Loaded",
@@ -470,6 +574,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             return
 
         try:
+            # Get graph boundaries
             node_coords = [(data['y'], data['x'])
                            for _, data in self.G.nodes(data=True)]
             min_lat = min(lat for lat, _ in node_coords)
@@ -477,11 +582,11 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             min_lon = min(lon for _, lon in node_coords)
             max_lon = max(lon for _, lon in node_coords)
 
-            delivery_points = GeolocationService.generate_delivery_points(
-                (min_lat, max_lat, min_lon, max_lon),
-                num_points
-            )
+            # Generate delivery points using GeolocationService
+            bounds = (min_lat, max_lat, min_lon, max_lon)
+            delivery_points = GeolocationService.generate_delivery_points(bounds, num_points)
 
+            # Reset and initialize map
             self.snapped_delivery_points = []
             center, zoom = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
             self.init_map(center, zoom)
@@ -489,25 +594,28 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             successful_points = 0
             skipped_points = 0
 
+            # Process each generated point
             for point in delivery_points:
                 try:
                     lat, lon = point.coordinates
                     node_id, (snapped_lat, snapped_lon) = self.find_accessible_node(lat, lon)
 
+                    # Store the snapped point with its properties
                     self.snapped_delivery_points.append(
                         (snapped_lat, snapped_lon, point.weight, point.volume)
                     )
 
-                    popup_text = (
-                        f'Delivery Point {successful_points + 1}<br>'
-                        f'Weight: {point.weight} kg<br>'
-                        f'Volume: {point.volume} m³'
-                    )
-
-                    folium.Marker(
+                    # Add point to map
+                    folium.CircleMarker(
                         location=(snapped_lat, snapped_lon),
-                        popup=popup_text,
-                        icon=folium.Icon(color='orange', icon='info-sign')
+                        radius=6,
+                        color='orange',
+                        fill=True,
+                        fill_color='orange',
+                        fill_opacity=0.7,
+                        popup=f'Delivery Point {successful_points + 1}<br>'
+                              f'Weight: {point.weight} kg<br>'
+                              f'Volume: {point.volume} m³'
                     ).add_to(self.map)
 
                     successful_points += 1
@@ -519,6 +627,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                     print(f"Error processing point ({lat:.6f}, {lon:.6f}): {str(e)}")
                     skipped_points += 1
 
+            # Show results
             if skipped_points > 0:
                 QtWidgets.QMessageBox.information(
                     self,
@@ -535,6 +644,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                 "Error",
                 f"Error generating deliveries: {str(e)}"
             )
+            print(f"Detailed error: {e}")
 
     def generate_delivery_drivers(self, num_drivers):
         """Generate delivery drivers and display their capacities in a scrollable list."""

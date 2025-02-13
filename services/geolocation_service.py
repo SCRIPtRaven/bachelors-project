@@ -3,7 +3,7 @@ import random
 from dataclasses import dataclass
 from typing import Tuple
 
-from config.settings import INNER_POINTS_RATIO, PACKAGE_CONSTRAINTS, DRIVER_CONSTRAINTS
+from config.settings import PACKAGE_CONSTRAINTS, DRIVER_CONSTRAINTS
 
 
 # TODO : Implement centralized data type handling and definitions
@@ -76,44 +76,71 @@ class GeolocationService:
 
     @staticmethod
     def generate_delivery_points(bounds, num_points):
+        """
+        Generate delivery points using a balanced approach between clustering and spread.
+
+        Args:
+            bounds: Tuple of (min_lat, max_lat, min_lon, max_lon)
+            num_points: Number of delivery points to generate
+
+        Returns:
+            List of DeliveryPoint objects
+        """
         min_lat, max_lat, min_lon, max_lon = bounds
 
+        # Calculate area dimensions
         lat_range = max_lat - min_lat
         lon_range = max_lon - min_lon
-        inner_lat_range = lat_range * 0.5
-        inner_lon_range = lon_range * 0.5
 
-        lat_mid = (min_lat + max_lat) / 2
-        lon_mid = (min_lon + max_lon) / 2
+        # Determine minimum distance between points (about 500m in city scale)
+        min_distance = min(lat_range, lon_range) * 0.015
 
-        inner_bounds = (
-            lat_mid - inner_lat_range / 2,
-            lat_mid + inner_lat_range / 2,
-            lon_mid - inner_lon_range / 2,
-            lon_mid + inner_lon_range / 2
-        )
+        points = []
+        attempts = 0
+        max_attempts = num_points * 10  # Prevent infinite loops
 
-        inner_count = int(num_points * INNER_POINTS_RATIO)
-        outer_count = num_points - inner_count
+        while len(points) < num_points and attempts < max_attempts:
+            attempts += 1
 
-        inner_points = GeolocationService.generate_grid_points(
-            inner_bounds[0], inner_bounds[1], inner_bounds[2], inner_bounds[3], inner_count
-        )
+            # Generate a candidate point
+            # 70% chance of generating in main city areas, 30% in outer areas
+            if random.random() < 0.7:
+                # Inner city - use central 70% of the area
+                margin = 0.15  # 15% margin from edges
+                lat = random.uniform(
+                    min_lat + lat_range * margin,
+                    max_lat - lat_range * margin
+                )
+                lon = random.uniform(
+                    min_lon + lon_range * margin,
+                    max_lon - lon_range * margin
+                )
+            else:
+                # Outer areas - full bounds
+                lat = random.uniform(min_lat, max_lat)
+                lon = random.uniform(min_lon, max_lon)
 
-        outer_points = []
-        while len(outer_points) < outer_count:
-            lat = random.uniform(min_lat, max_lat)
-            lon = random.uniform(min_lon, max_lon)
-            if not (inner_bounds[0] <= lat <= inner_bounds[1] and
-                    inner_bounds[2] <= lon <= inner_bounds[3]):
+            # Check distance from existing points
+            too_close = False
+            for existing_point in points:
+                ex_lat, ex_lon = existing_point.coordinates
+                dist = math.sqrt(
+                    (lat - ex_lat) ** 2 +
+                    (lon - ex_lon) ** 2
+                )
+                if dist < min_distance:
+                    too_close = True
+                    break
+
+            if not too_close:
                 weight, volume = GeolocationService.generate_random_package_properties()
-                outer_points.append(DeliveryPoint(
+                points.append(DeliveryPoint(
                     coordinates=(lat, lon),
                     weight=weight,
                     volume=volume
                 ))
 
-        return inner_points + outer_points
+        return points
 
     @staticmethod
     def generate_random_driver_properties():
