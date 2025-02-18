@@ -352,7 +352,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             return
 
         try:
-            # Cleanup previous optimization if exists
             if hasattr(self, 'optimization_thread'):
                 if self.optimization_thread.isRunning():
                     self.optimization_thread.quit()
@@ -362,32 +361,26 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             if hasattr(self, 'optimizer'):
                 self.optimizer.deleteLater()
 
-            # Reset the optimization map state
             if hasattr(self, 'optimization_map_initialized'):
                 delattr(self, 'optimization_map_initialized')
 
-            # Create optimizer instance
             self.optimizer = SimulatedAnnealingOptimizer(
                 self.delivery_drivers,
                 self.snapped_delivery_points,
                 self.G
             )
 
-            # Create and configure thread
             self.optimization_thread = QtCore.QThread(self)
             self.optimizer.moveToThread(self.optimization_thread)
 
-            # Connect signals
             self.optimization_thread.started.connect(self.optimizer.optimize)
             self.optimizer.update_visualization.connect(self.update_route_visualization)
             self.optimizer.finished.connect(self.on_optimization_finished)
             self.optimizer.finished.connect(self.optimization_thread.quit)
             self.optimization_thread.finished.connect(self.cleanup_optimization)
 
-            # Track start time
             self.start_time = time.time()
 
-            # Start optimization
             self.optimization_thread.start()
 
         except Exception as e:
@@ -415,15 +408,13 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             if not hasattr(self, 'optimization_map_initialized'):
                 self.init_map(city_center, zoom)
                 self.optimization_map_initialized = True
-                self.map_zoom = zoom  # Store zoom level
+                self.map_zoom = zoom
 
-            # Completely clear the map of all previous layers
             self.map = folium.Map(
                 location=self.map.location,
-                zoom_start=self.map_zoom  # Use stored zoom level
+                zoom_start=self.map_zoom
             )
 
-            # Create fresh layers
             self.delivery_layer = folium.FeatureGroup(name='delivery_points')
             self.routes_layer = folium.FeatureGroup(name='routes')
             self.map.add_child(self.delivery_layer)
@@ -432,20 +423,16 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             colors = self.get_folium_colors()
             unassigned_set = set(unassigned_deliveries)
 
-            # Create definitive assignment mapping
             delivery_to_driver = {}
             conflicting_deliveries = set()
 
-            # First pass - detect conflicts
             for driver_idx, assignment in enumerate(current_solution):
                 for delivery_idx in assignment.delivery_indices:
                     if delivery_idx in delivery_to_driver:
-                        # Mark as conflicting if already assigned to another driver
                         conflicting_deliveries.add(delivery_idx)
                     else:
                         delivery_to_driver[delivery_idx] = (driver_idx, assignment.driver_id)
 
-            # Draw routes and points for each driver
             for driver_idx, assignment in enumerate(current_solution):
                 if not assignment.delivery_indices:
                     continue
@@ -453,7 +440,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                 color = colors[driver_idx % len(colors)]
                 driver_points = []
 
-                # Only process points exclusively assigned to this driver
                 for delivery_idx in assignment.delivery_indices:
                     if (delivery_idx in delivery_to_driver and
                             delivery_to_driver[delivery_idx][0] == driver_idx and
@@ -467,9 +453,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                             'volume': volume
                         })
 
-                # Draw points and route only if we have valid assignments
                 if driver_points:
-                    # Draw delivery points
                     for point in driver_points:
                         folium.CircleMarker(
                             location=point['coords'],
@@ -483,18 +467,32 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                                    f'Volume: {point["volume"]}m³')
                         ).add_to(self.delivery_layer)
 
-                    # Draw route if we have multiple points
                     if len(driver_points) > 1:
-                        route_coords = [p['coords'] for p in driver_points]
+                        detailed_route = []
+                        for i in range(len(driver_points) - 1):
+                            start = driver_points[i]['coords']
+                            end = driver_points[i + 1]['coords']
+
+                            try:
+                                start_node = ox.nearest_nodes(self.G, X=start[1], Y=start[0])
+                                end_node = ox.nearest_nodes(self.G, X=end[1], Y=end[0])
+
+                                path = nx.shortest_path(self.G, start_node, end_node, weight='length')
+
+                                path_coords = [(self.G.nodes[node]['y'], self.G.nodes[node]['x'])
+                                               for node in path]
+
+                                detailed_route.extend(path_coords)
+                            except nx.NetworkXNoPath:
+                                detailed_route.extend([start, end])
+
                         folium.PolyLine(
-                            locations=route_coords,
+                            locations=detailed_route,
                             color=color,
                             weight=3,
                             opacity=0.7,
                             popup=f'Driver {assignment.driver_id} Route'
                         ).add_to(self.routes_layer)
-
-            # Mark conflicting deliveries in red
             for delivery_idx in conflicting_deliveries:
                 lat, lon, weight, volume = self.snapped_delivery_points[delivery_idx]
                 folium.CircleMarker(
@@ -509,7 +507,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                            f'Volume: {volume}m³')
                 ).add_to(self.delivery_layer)
 
-            # Add unassigned delivery points
             for delivery_idx in unassigned_deliveries:
                 if delivery_idx not in delivery_to_driver and delivery_idx not in conflicting_deliveries:
                     lat, lon, weight, volume = self.snapped_delivery_points[delivery_idx]
@@ -547,7 +544,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                     total_distance += route_length
                     total_time += route_length / 10
 
-            # Update statistics labels
             if self.time_label:
                 self.time_label.setText(f"Routes computed in {time.time() - self.start_time:.2f} s")
             if self.travel_time_label:
@@ -555,7 +551,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             if self.distance_label:
                 self.distance_label.setText(f"Total distance: {total_distance / 1000:.2f} km")
 
-            # Clean up
             if hasattr(self, 'optimizer'):
                 self.optimizer.deleteLater()
                 delattr(self, 'optimizer')
@@ -574,7 +569,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             return
 
         try:
-            # Get graph boundaries
             node_coords = [(data['y'], data['x'])
                            for _, data in self.G.nodes(data=True)]
             min_lat = min(lat for lat, _ in node_coords)
@@ -582,11 +576,9 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             min_lon = min(lon for _, lon in node_coords)
             max_lon = max(lon for _, lon in node_coords)
 
-            # Generate delivery points using GeolocationService
             bounds = (min_lat, max_lat, min_lon, max_lon)
             delivery_points = GeolocationService.generate_delivery_points(bounds, num_points)
 
-            # Reset and initialize map
             self.snapped_delivery_points = []
             center, zoom = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
             self.init_map(center, zoom)
@@ -594,18 +586,15 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             successful_points = 0
             skipped_points = 0
 
-            # Process each generated point
             for point in delivery_points:
                 try:
                     lat, lon = point.coordinates
                     node_id, (snapped_lat, snapped_lon) = self.find_accessible_node(lat, lon)
 
-                    # Store the snapped point with its properties
                     self.snapped_delivery_points.append(
                         (snapped_lat, snapped_lon, point.weight, point.volume)
                     )
 
-                    # Add point to map
                     folium.CircleMarker(
                         location=(snapped_lat, snapped_lon),
                         radius=6,
@@ -627,7 +616,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                     print(f"Error processing point ({lat:.6f}, {lon:.6f}): {str(e)}")
                     skipped_points += 1
 
-            # Show results
             if skipped_points > 0:
                 QtWidgets.QMessageBox.information(
                     self,

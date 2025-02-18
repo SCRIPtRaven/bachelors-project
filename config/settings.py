@@ -10,34 +10,38 @@ ROUTE_COLORS = {
 }
 
 # TSP settings
-INNER_POINTS_RATIO = 0.75  # Ratio of points to generate in inner area
+INNER_POINTS_RATIO = 0.70  # Ratio of points to generate in inner area
 
 PACKAGE_CONSTRAINTS = {
     'weight': {  # in kg
         'min': 2,
-        'max': 25.0
+        'max': 25.0,
+        'step': 0.5
     },
     'volume': {  # in cubic meters (m³)
         'min': 0.01,
-        'max': 0.5
+        'max': 0.5,
+        'step': 0.01
     }
 }
 
 DRIVER_CONSTRAINTS = {
     'weight_capacity': {  # in kg
         'min': 1000.0,
-        'max': 2000.0
+        'max': 2000.0,
+        'step': 100.0
     },
-    'volume_capacity': {  # in cubic meters
+    'volume_capacity': {  # in cubic meters (m³)
         'min': 15.0,
-        'max': 20.0
+        'max': 20.0,
+        'step': 0.5
     }
 }
 
 OPTIMIZATION_SETTINGS = {
     'VISUALIZE_PROCESS': True,
-    'INITIAL_TEMPERATURE': 500.0,
-    'COOLING_RATE': 0.99,
-    'MIN_TEMPERATURE': 0.05,
-    'ITERATIONS_PER_TEMPERATURE': 100
+    'INITIAL_TEMPERATURE': 250.0,
+    'COOLING_RATE': 0.98,
+    'MIN_TEMPERATURE': 0.1,
+    'ITERATIONS_PER_TEMPERATURE': 50
 }
