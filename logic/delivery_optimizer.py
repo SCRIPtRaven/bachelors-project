@@ -7,6 +7,7 @@ from typing import List, Tuple
 import networkx as nx
 import osmnx as ox
 from PyQt5.QtCore import QObject, pyqtSignal
+from tqdm import tqdm
 
 from config.settings import OPTIMIZATION_SETTINGS
 
@@ -30,6 +31,7 @@ class DeliveryAssignment:
 class SimulatedAnnealingOptimizer(QObject):
     update_visualization = pyqtSignal(object, object)
     finished = pyqtSignal(object, object)
+    visualization_complete = pyqtSignal()
 
     def __init__(self, drivers, delivery_tuples, G):
         super().__init__()
@@ -43,6 +45,9 @@ class SimulatedAnnealingOptimizer(QObject):
         self.best_solution = None
         self.best_fitness = float('inf')
         self.unassigned_deliveries = set()
+
+        self.update_interval = 0.5
+        self.last_update = 0
 
     def get_cached_distance(self, start: Tuple[float, float], end: Tuple[float, float]) -> float:
         """Get cached distance between two points or calculate if not cached."""
@@ -95,50 +100,78 @@ class SimulatedAnnealingOptimizer(QObject):
 
             self.best_solution = current_solution
             self.best_fitness = current_fitness
+            initial_temperature = OPTIMIZATION_SETTINGS['INITIAL_TEMPERATURE']
+            temperature = initial_temperature
 
-            temperature = OPTIMIZATION_SETTINGS['INITIAL_TEMPERATURE']
+            progress_format = "{desc}: {percentage:3.0f}% |{bar}| {n:.1f}/{total:.1f} [{elapsed}<{remaining}]"
 
-            self.update_visualization.emit(current_solution, self.unassigned_deliveries)
+            with tqdm(
+                    total=initial_temperature,
+                    desc="Optimizing Routes",
+                    bar_format=progress_format,
+                    ncols=100
+            ) as progress:
+                last_temp = initial_temperature
+                iteration_count = 0
+                last_improvement = 0
+                stagnation_limit = 1000
 
-            while temperature > OPTIMIZATION_SETTINGS['MIN_TEMPERATURE']:
-                improved = False
-                solution_updated = False
+                while temperature > OPTIMIZATION_SETTINGS['MIN_TEMPERATURE']:
+                    improved = False
 
-                for _ in range(OPTIMIZATION_SETTINGS['ITERATIONS_PER_TEMPERATURE']):
-                    neighbor_solution = self.get_neighbor_solution(current_solution)
-                    neighbor_fitness = sum(a.fitness for a in neighbor_solution)
+                    for _ in range(OPTIMIZATION_SETTINGS['ITERATIONS_PER_TEMPERATURE']):
+                        iteration_count += 1
 
-                    if neighbor_fitness < current_fitness:
-                        current_solution = neighbor_solution
-                        current_fitness = neighbor_fitness
-                        improved = True
-                        solution_updated = True
+                        if OPTIMIZATION_SETTINGS['VISUALIZE_PROCESS']:
+                            current_time = time.time()
+                            if current_time - self.last_update >= self.update_interval:
+                                self.update_visualization.emit(current_solution, self.unassigned_deliveries)
+                                self.last_update = current_time
 
-                        if current_fitness < self.best_fitness:
-                            self.best_solution = current_solution
-                            self.best_fitness = current_fitness
-                    else:
-                        delta = neighbor_fitness - current_fitness
-                        if random.random() < math.exp(-delta / temperature):
+                        neighbor_solution = self.get_neighbor_solution(current_solution)
+                        neighbor_fitness = sum(a.fitness for a in neighbor_solution)
+
+                        if neighbor_fitness < current_fitness:
                             current_solution = neighbor_solution
                             current_fitness = neighbor_fitness
-                            solution_updated = True
+                            improved = True
+                            last_improvement = iteration_count
 
-                if not improved:
-                    temperature *= OPTIMIZATION_SETTINGS['COOLING_RATE'] * 0.5
-                else:
-                    temperature *= OPTIMIZATION_SETTINGS['COOLING_RATE']
+                            if current_fitness < self.best_fitness:
+                                self.best_solution = current_solution
+                                self.best_fitness = current_fitness
 
-                print(f"Temperature: {temperature:.2f}, Best Fitness: {self.best_fitness:.2f}")
+                        else:
+                            delta = neighbor_fitness - current_fitness
+                            if random.random() < math.exp(-delta / temperature):
+                                current_solution = neighbor_solution
+                                current_fitness = neighbor_fitness
 
-                if OPTIMIZATION_SETTINGS['VISUALIZE_PROCESS'] and solution_updated:
-                    self.update_visualization.emit(current_solution, self.unassigned_deliveries)
-                    time.sleep(0.5)
+                        progress.set_description(
+                            f"T: {temperature:.1f} | Best: {self.best_fitness:.0f} | Iter: {iteration_count}"
+                        )
 
+                        if iteration_count - last_improvement > stagnation_limit:
+                            temperature = OPTIMIZATION_SETTINGS['MIN_TEMPERATURE']
+                            break
+
+                    if improved:
+                        temperature *= OPTIMIZATION_SETTINGS['COOLING_RATE']
+                    else:
+                        temperature *= OPTIMIZATION_SETTINGS['COOLING_RATE'] * 0.5
+
+                    temp_difference = last_temp - temperature
+                    progress.update(temp_difference)
+                    last_temp = temperature
+
+                progress.update(last_temp - OPTIMIZATION_SETTINGS['MIN_TEMPERATURE'])
+
+            self.update_visualization.emit(self.best_solution, self.unassigned_deliveries)
             self.finished.emit(self.best_solution, self.unassigned_deliveries)
 
         except Exception as e:
             print(f"Error in optimization: {e}")
+            self.finished.emit(None, set())
 
     def generate_initial_solution(self) -> List[DeliveryAssignment]:
         """Generate initial solution using geographic sectors"""

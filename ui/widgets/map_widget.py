@@ -6,15 +6,15 @@ import networkx as nx
 import osmnx as ox
 from PyQt5 import QtCore, QtWidgets, QtWebEngineWidgets, QtWebChannel
 
-from config.paths import MAP_HTML, get_graph_file_path, get_travel_times_path
+from config.paths import MAP_HTML
 from config.settings import ROUTE_COLORS
-from data import graph_manager
 from logic.delivery_optimizer import SimulatedAnnealingOptimizer
-from logic.routing import get_largest_connected_component
 from services.geolocation_service import GeolocationService
-from ui.workers.download_worker import DownloadGraphWorker
+from ui.widgets.clickable_label import ClickableLabel
+from ui.workers.graph_load_worker import GraphLoadWorker
 from ui.workers.route_worker import ComputeRouteWorker
 from utils.geolocation import get_city_coordinates
+from utils.route_color_manager import RouteColorManager
 
 
 class CustomWebEnginePage(QtWebEngineWidgets.QWebEnginePage):
@@ -37,6 +37,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        self.selected_driver_id = None
         self.G = None
         self.map = None
         self.origin = None
@@ -63,6 +64,16 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
         initial_coords, initial_zoom = get_city_coordinates("Kaunas, Lithuania")
         self.init_map(initial_coords, initial_zoom)
         self.load_map()
+
+        self.route_color_manager = RouteColorManager()
+
+        self.visualization_queue = []
+        self.visualization_timer = QtCore.QTimer()
+        self.visualization_timer.timeout.connect(self.process_visualization_queue)
+        self.visualization_timer.start(100)
+
+        self.is_computing = False
+        self.is_loading = False
 
     def set_stats_labels(self, time_label, travel_time_label, distance_label):
         self.time_label = time_label
@@ -165,51 +176,58 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
     # ----------------- WORKERS & LOAD/SAVE -----------------
     def load_graph_data(self, city_name):
         """
-        Load or download graph data for the specified city.
-        After loading, reinitialize the map to center on the new city.
+        Asynchronously loads graph data for the specified city.
+        Handles both existing and new graph downloads through a worker thread.
         """
-        if self.G is not None:
-            QtWidgets.QMessageBox.information(self, "Information", "Graph data is already loaded.")
-            self.load_completed.emit(True, "Graph already loaded")
+        if self.is_loading:
             return
 
-        try:
-            center, zoom = get_city_coordinates(city_name)
+        self.is_loading = True
+        self.setEnabled(False)
 
-            graph_path = get_graph_file_path(city_name)
-            travel_times_path = get_travel_times_path(city_name)
+        self.load_worker = GraphLoadWorker(city_name)
+        self.load_worker.finished.connect(self.on_graph_loaded)
+        self.load_worker.start()
 
-            self.G = graph_manager.load_graph(filename=graph_path)
-            self.G = get_largest_connected_component(self.G)
+    def on_graph_loaded(self, success, message, graph, city_name):
+        """
+        Handles the completion of graph loading operations.
+        Updates the UI and notifies the user of the result.
+        """
+        self.is_loading = False
+        self.setEnabled(True)
 
+        if success:
+            self.G = graph
             self.current_city = city_name
+
+            center, zoom = get_city_coordinates(city_name)
             self.init_map(center, zoom)
-
-            if os.path.isfile(travel_times_path):
-                graph_manager.update_travel_times_from_csv(self.G, travel_times_path)
-
             self.load_map()
-            QtWidgets.QMessageBox.information(self, "Information", "Graph data loaded successfully.")
-            self.load_completed.emit(True, "Graph loaded successfully")
 
-        except FileNotFoundError:
-            reply = QtWidgets.QMessageBox.question(
-                self,
-                "File Not Found",
-                f"Graph data file for {city_name} not found. Would you like to download it?",
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
-            )
+            QtWidgets.QMessageBox.information(self, "Success", message)
+            self.load_completed.emit(True, message)
+        else:
+            QtWidgets.QMessageBox.critical(self, "Error", message)
+            self.load_completed.emit(False, message)
 
-            if reply == QtWidgets.QMessageBox.Yes:
-                self.worker = DownloadGraphWorker(city_name)
-                self.worker.finished.connect(
-                    lambda success, msg: self.on_download_and_load_finished(success, msg, city_name))
-                self.worker.start()
-            else:
-                self.load_completed.emit(False, "User cancelled download")
+        self.load_worker.deleteLater()
+
+    def process_visualization_queue(self):
+        """
+        Processes pending visualization updates from the queue.
+        Only processes the most recent update to prevent UI lag.
+        """
+        if not self.visualization_queue:
+            return
+
+        solution, unassigned = self.visualization_queue[-1]
+        self.visualization_queue.clear()
+
+        try:
+            self._update_route_visualization(solution, unassigned)
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Error loading data:\n{e}")
-            self.load_completed.emit(False, str(e))
+            print(f"Error in visualization update: {e}")
 
     def find_accessible_node(self, lat, lon, search_radius=1000):
         """
@@ -267,29 +285,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
 
         raise ValueError(f"No accessible node found near ({lat:.6f}, {lon:.6f})")
 
-    def on_download_and_load_finished(self, success, message, city_name):
-        """Modified to handle city-specific loading"""
-        if success:
-            try:
-                graph_path = get_graph_file_path(city_name)
-                travel_times_path = get_travel_times_path(city_name)
-
-                self.G = graph_manager.load_graph(filename=graph_path)
-                self.current_city = city_name
-
-                if os.path.isfile(travel_times_path):
-                    graph_manager.update_travel_times_from_csv(self.G, travel_times_path)
-
-                QtWidgets.QMessageBox.information(self, "Success", "Graph data downloaded and loaded successfully.")
-                self.load_completed.emit(True, "Graph downloaded and loaded successfully")
-            except Exception as e:
-                error_msg = f"Error loading downloaded data:\n{e}"
-                QtWidgets.QMessageBox.critical(self, "Error", error_msg)
-                self.load_completed.emit(False, error_msg)
-        else:
-            QtWidgets.QMessageBox.critical(self, "Error", message)
-            self.load_completed.emit(False, message)
-
     def compute_route(self):
         if self.G is None:
             QtWidgets.QMessageBox.warning(self, "Data Not Loaded", "Please load or download the graph data first.")
@@ -336,19 +331,17 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             QtWidgets.QMessageBox.critical(self, "Error", message)
 
     # ----------------- TSP -----------------
-    def get_folium_colors(self):
-        """
-        Returns a list of folium-supported colors for routes and markers.
-        """
-        return [
-            'blue', 'red', 'green', 'purple', 'orange', 'darkred', 'lightred',
-            'darkblue', 'darkgreen', 'cadetblue', 'darkpurple', 'pink'
-        ]
-
     def find_shortest_route(self):
+        """
+        Initiates the route optimization process asynchronously.
+        Ensures proper cleanup of previous optimization attempts.
+        """
         if self.G is None or not self.snapped_delivery_points or not self.delivery_drivers:
-            QtWidgets.QMessageBox.warning(self, "Missing Data",
-                                          "Please ensure graph data, delivery points, and drivers are all loaded.")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Missing Data",
+                "Please ensure graph data, delivery points, and drivers are all loaded."
+            )
             return
 
         try:
@@ -361,9 +354,6 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             if hasattr(self, 'optimizer'):
                 self.optimizer.deleteLater()
 
-            if hasattr(self, 'optimization_map_initialized'):
-                delattr(self, 'optimization_map_initialized')
-
             self.optimizer = SimulatedAnnealingOptimizer(
                 self.delivery_drivers,
                 self.snapped_delivery_points,
@@ -374,16 +364,20 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             self.optimizer.moveToThread(self.optimization_thread)
 
             self.optimization_thread.started.connect(self.optimizer.optimize)
-            self.optimizer.update_visualization.connect(self.update_route_visualization)
+            self.optimizer.update_visualization.connect(
+                lambda sol, unassigned: self.visualization_queue.append((sol, unassigned))
+            )
             self.optimizer.finished.connect(self.on_optimization_finished)
             self.optimizer.finished.connect(self.optimization_thread.quit)
             self.optimization_thread.finished.connect(self.cleanup_optimization)
 
-            self.start_time = time.time()
+            self.setEnabled(False)
 
+            self.start_time = time.time()
             self.optimization_thread.start()
 
         except Exception as e:
+            self.setEnabled(True)
             QtWidgets.QMessageBox.critical(self, "Error", f"Route planning error: {str(e)}")
             print(f"Detailed error: {e}")
 
@@ -401,7 +395,15 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
         except Exception as e:
             print(f"Error in cleanup: {e}")
 
-    def update_route_visualization(self, current_solution, unassigned_deliveries):
+    def _update_route_visualization(self, current_solution, unassigned_deliveries):
+        """
+        Internal method that performs the actual visualization update.
+        Uses an advanced color management system to ensure routes are visually distinct.
+
+        Args:
+            current_solution: List of DeliveryAssignment objects representing current routes
+            unassigned_deliveries: Set of delivery indices that haven't been assigned
+        """
         try:
             city_center, zoom = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
 
@@ -420,9 +422,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             self.map.add_child(self.delivery_layer)
             self.map.add_child(self.routes_layer)
 
-            colors = self.get_folium_colors()
             unassigned_set = set(unassigned_deliveries)
-
             delivery_to_driver = {}
             conflicting_deliveries = set()
 
@@ -433,11 +433,21 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                     else:
                         delivery_to_driver[delivery_idx] = (driver_idx, assignment.driver_id)
 
+            active_drivers = [a for a in current_solution if a.delivery_indices]
+            total_drivers = len(active_drivers)
+
             for driver_idx, assignment in enumerate(current_solution):
                 if not assignment.delivery_indices:
                     continue
 
-                color = colors[driver_idx % len(colors)]
+                route_style = self.route_color_manager.get_route_style(driver_idx, total_drivers)
+
+                if hasattr(self, 'selected_driver_id') and self.selected_driver_id is not None:
+                    if assignment.driver_id != self.selected_driver_id:
+                        reduced_opacity_style = route_style.copy()
+                        reduced_opacity_style['opacity'] = 0.25
+                        route_style = reduced_opacity_style
+
                 driver_points = []
 
                 for delivery_idx in assignment.delivery_indices:
@@ -458,9 +468,11 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                         folium.CircleMarker(
                             location=point['coords'],
                             radius=6,
-                            color=color,
+                            color=route_style['color'],
                             fill=True,
-                            fill_opacity=0.7,
+                            fill_color=route_style['color'],
+                            opacity=route_style['opacity'],
+                            fill_opacity=route_style['opacity'],
                             popup=(f'Delivery Point {point["idx"] + 1}<br>'
                                    f'Assigned to Driver {assignment.driver_id}<br>'
                                    f'Weight: {point["weight"]}kg<br>'
@@ -469,6 +481,7 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
 
                     if len(driver_points) > 1:
                         detailed_route = []
+
                         for i in range(len(driver_points) - 1):
                             start = driver_points[i]['coords']
                             end = driver_points[i + 1]['coords']
@@ -476,51 +489,23 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
                             try:
                                 start_node = ox.nearest_nodes(self.G, X=start[1], Y=start[0])
                                 end_node = ox.nearest_nodes(self.G, X=end[1], Y=end[0])
-
                                 path = nx.shortest_path(self.G, start_node, end_node, weight='length')
-
                                 path_coords = [(self.G.nodes[node]['y'], self.G.nodes[node]['x'])
                                                for node in path]
-
                                 detailed_route.extend(path_coords)
                             except nx.NetworkXNoPath:
                                 detailed_route.extend([start, end])
 
                         folium.PolyLine(
                             locations=detailed_route,
-                            color=color,
-                            weight=3,
-                            opacity=0.7,
+                            color=route_style['color'],
+                            weight=route_style['weight'],
+                            dash_array=route_style['dash_array'],
+                            opacity=route_style['opacity'],
                             popup=f'Driver {assignment.driver_id} Route'
                         ).add_to(self.routes_layer)
-            for delivery_idx in conflicting_deliveries:
-                lat, lon, weight, volume = self.snapped_delivery_points[delivery_idx]
-                folium.CircleMarker(
-                    location=(lat, lon),
-                    radius=6,
-                    color='red',
-                    fill=True,
-                    fill_opacity=0.7,
-                    popup=(f'Delivery Point {delivery_idx + 1}<br>'
-                           f'ERROR: Multiple Assignments<br>'
-                           f'Weight: {weight}kg<br>'
-                           f'Volume: {volume}m³')
-                ).add_to(self.delivery_layer)
 
-            for delivery_idx in unassigned_deliveries:
-                if delivery_idx not in delivery_to_driver and delivery_idx not in conflicting_deliveries:
-                    lat, lon, weight, volume = self.snapped_delivery_points[delivery_idx]
-                    folium.CircleMarker(
-                        location=(lat, lon),
-                        radius=6,
-                        color='black',
-                        fill=True,
-                        fill_opacity=0.7,
-                        popup=(f'Delivery Point {delivery_idx + 1}<br>'
-                               f'UNASSIGNED<br>'
-                               f'Weight: {weight}kg<br>'
-                               f'Volume: {volume}m³')
-                    ).add_to(self.delivery_layer)
+            self._visualize_problematic_deliveries(conflicting_deliveries, unassigned_deliveries)
 
             self.load_map()
             QtWidgets.QApplication.processEvents()
@@ -528,35 +513,123 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
         except Exception as e:
             print(f"Error in visualization update: {e}")
 
+    def _visualize_problematic_deliveries(self, conflicting_deliveries, unassigned_deliveries):
+        """
+        Helper method to visualize deliveries that are either conflicting or unassigned.
+        """
+        for delivery_idx in conflicting_deliveries:
+            lat, lon, weight, volume = self.snapped_delivery_points[delivery_idx]
+            folium.CircleMarker(
+                location=(lat, lon),
+                radius=6,
+                color='red',
+                fill=True,
+                fill_opacity=0.7,
+                popup=(f'Delivery Point {delivery_idx + 1}<br>'
+                       f'ERROR: Multiple Assignments<br>'
+                       f'Weight: {weight}kg<br>'
+                       f'Volume: {volume}m³')
+            ).add_to(self.delivery_layer)
+
+        for delivery_idx in unassigned_deliveries:
+            if delivery_idx not in conflicting_deliveries:
+                lat, lon, weight, volume = self.snapped_delivery_points[delivery_idx]
+                folium.CircleMarker(
+                    location=(lat, lon),
+                    radius=6,
+                    color='black',
+                    fill=True,
+                    fill_opacity=0.7,
+                    popup=(f'Delivery Point {delivery_idx + 1}<br>'
+                           f'UNASSIGNED<br>'
+                           f'Weight: {weight}kg<br>'
+                           f'Volume: {volume}m³')
+                ).add_to(self.delivery_layer)
+
     def on_optimization_finished(self, final_solution, unassigned):
-        """Handle optimization completion"""
+        """
+        Handles the completion of the route optimization process, updating statistics
+        and final visualization while ensuring proper cleanup. Now also stores the final
+        solution for driver highlighting functionality.
+
+        Args:
+            final_solution: List of DeliveryAssignment objects containing the optimized routes
+            unassigned: Set of delivery indices that couldn't be assigned to any driver
+        """
         try:
+            self.current_solution = final_solution
+            self.unassigned_deliveries = unassigned
+
+            self.setEnabled(True)
+
             city_center, _ = get_city_coordinates(self.current_city or "Kaunas, Lithuania")
             total_distance = 0
             total_time = 0
 
             for assignment in final_solution:
                 if assignment.delivery_indices:
-                    delivery_coords = [self.snapped_delivery_points[i][0:2]
-                                       for i in assignment.delivery_indices]
-                    delivery_coords = [city_center] + delivery_coords + [city_center]
-                    route_length = self.optimizer.calculate_route_distance(delivery_coords)
+                    delivery_coords = [
+                        self.snapped_delivery_points[i][0:2]
+                        for i in assignment.delivery_indices
+                    ]
+                    complete_route = [city_center] + delivery_coords + [city_center]
+
+                    route_length = self.optimizer.calculate_route_distance(complete_route)
                     total_distance += route_length
                     total_time += route_length / 10
 
             if self.time_label:
-                self.time_label.setText(f"Routes computed in {time.time() - self.start_time:.2f} s")
+                computation_time = time.time() - self.start_time
+                self.time_label.setText(
+                    f"Routes computed in {computation_time:.2f} seconds"
+                )
+
             if self.travel_time_label:
-                self.travel_time_label.setText(f"Total travel time: {total_time / 60:.2f} min")
+                total_minutes = total_time / 60
+                self.travel_time_label.setText(
+                    f"Total travel time: {total_minutes:.2f} minutes"
+                )
+
             if self.distance_label:
-                self.distance_label.setText(f"Total distance: {total_distance / 1000:.2f} km")
+                total_kilometers = total_distance / 1000
+                self.distance_label.setText(
+                    f"Total distance: {total_kilometers:.2f} km"
+                )
+
+            assigned_count = sum(len(assignment.delivery_indices)
+                                 for assignment in final_solution)
+            unassigned_count = len(unassigned)
+            total_deliveries = assigned_count + unassigned_count
+
+            summary = (
+                f"Optimization Complete\n\n"
+                f"Total Deliveries: {total_deliveries}\n"
+                f"Successfully Assigned: {assigned_count}\n"
+                f"Unassigned: {unassigned_count}\n"
+                f"Total Distance: {total_kilometers:.2f} km\n"
+                f"Estimated Time: {total_minutes:.2f} minutes"
+            )
+
+            QtWidgets.QMessageBox.information(
+                self,
+                "Optimization Results",
+                summary
+            )
+
+            self.visualization_queue.append((final_solution, unassigned))
 
             if hasattr(self, 'optimizer'):
                 self.optimizer.deleteLater()
                 delattr(self, 'optimizer')
 
         except Exception as e:
-            print(f"Error in optimization finished handler: {e}")
+            self.setEnabled(True)
+            print(f"Error in optimization finished handler: {str(e)}")
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Error",
+                f"An error occurred while finalizing the optimization:\n{str(e)}"
+            )
 
     def generate_delivery_points(self, num_points):
         """
@@ -635,52 +708,65 @@ class MapWidget(QtWebEngineWidgets.QWebEngineView):
             print(f"Detailed error: {e}")
 
     def generate_delivery_drivers(self, num_drivers):
-        """Generate delivery drivers and display their capacities in a scrollable list."""
         try:
             self.delivery_drivers = GeolocationService.generate_delivery_drivers(num_drivers)
 
-            if self.time_label:
-                stats_layout = self.time_label.parent().layout()
+            stats_layout = self.time_label.parent().layout()
+            for i in reversed(range(stats_layout.count())):
+                widget = stats_layout.itemAt(i).widget()
+                if isinstance(widget, QtWidgets.QScrollArea) or (
+                        isinstance(widget, QtWidgets.QLabel) and widget.text() == "Delivery Drivers:"):
+                    widget.setParent(None)
 
-                for i in reversed(range(stats_layout.count())):
-                    widget = stats_layout.itemAt(i).widget()
-                    if isinstance(widget, QtWidgets.QScrollArea) or (
-                            isinstance(widget, QtWidgets.QLabel) and widget.text() == "Delivery Drivers:"):
-                        widget.setParent(None)
+            header_label = QtWidgets.QLabel("Delivery Drivers:")
+            header_label.setStyleSheet("font-weight: bold; padding: 5px;")
+            stats_layout.addWidget(header_label)
 
-                header_label = QtWidgets.QLabel("Delivery Drivers:")
-                header_label.setStyleSheet("font-weight: bold; padding: 5px;")
-                stats_layout.addWidget(header_label)
+            scroll_area = QtWidgets.QScrollArea()
+            scroll_area.setWidgetResizable(True)
+            scroll_area.setMinimumHeight(150)
+            scroll_area.setMaximumHeight(200)
+            scroll_area.setStyleSheet("""
+                QScrollArea {
+                    border: 1px solid #ddd;
+                    border-radius: 5px;
+                    background: white;
+                }
+            """)
 
-                scroll_area = QtWidgets.QScrollArea()
-                scroll_area.setWidgetResizable(True)
-                scroll_area.setMinimumHeight(150)
-                scroll_area.setMaximumHeight(200)
-                scroll_area.setStyleSheet("""
-                    QScrollArea {
-                        border: 1px solid #ddd;
-                        border-radius: 5px;
-                        background: white;
-                    }
-                """)
+            driver_container = QtWidgets.QWidget()
+            driver_layout = QtWidgets.QVBoxLayout(driver_container)
+            driver_layout.setSpacing(5)
+            driver_layout.setContentsMargins(5, 5, 5, 5)
 
-                driver_container = QtWidgets.QWidget()
-                driver_layout = QtWidgets.QVBoxLayout(driver_container)
-                driver_layout.setSpacing(5)
-                driver_layout.setContentsMargins(5, 5, 5, 5)
+            self.driver_labels = {}
+            for driver in self.delivery_drivers:
+                driver_label = ClickableLabel(
+                    f"Driver {driver.id}: Capacity {driver.weight_capacity}kg, {driver.volume_capacity}m³",
+                    driver_id=driver.id
+                )
+                driver_label.doubleClicked.connect(self.on_driver_double_clicked)
+                self.driver_labels[driver.id] = driver_label
+                driver_layout.addWidget(driver_label)
 
-                for driver in self.delivery_drivers:
-                    driver_label = QtWidgets.QLabel(
-                        f"Driver {driver.id}: Capacity {driver.weight_capacity}kg, {driver.volume_capacity}m³"
-                    )
-                    driver_label.setStyleSheet("padding: 3px;")
-                    driver_layout.addWidget(driver_label)
-
-                driver_layout.addStretch()
-
-                scroll_area.setWidget(driver_container)
-
-                stats_layout.addWidget(scroll_area)
+            driver_layout.addStretch()
+            scroll_area.setWidget(driver_container)
+            stats_layout.addWidget(scroll_area)
 
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Error generating drivers: {e}")
+
+    def on_driver_double_clicked(self, driver_id):
+        if not hasattr(self, 'current_solution') or self.current_solution is None:
+            return
+
+        if getattr(self, 'selected_driver_id', None) == driver_id:
+            self.selected_driver_id = None
+        else:
+            self.selected_driver_id = driver_id
+
+        for d_id, label in self.driver_labels.items():
+            label.setSelected(d_id == self.selected_driver_id)
+
+        if hasattr(self, 'current_solution'):
+            self.visualization_queue.append((self.current_solution, self.unassigned_deliveries))

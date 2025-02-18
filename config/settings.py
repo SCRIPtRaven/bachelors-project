@@ -32,16 +32,16 @@ DRIVER_CONSTRAINTS = {
         'step': 100.0
     },
     'volume_capacity': {  # in cubic meters (m³)
-        'min': 15.0,
-        'max': 20.0,
+        'min': 50.0,
+        'max': 100.0,
         'step': 0.5
     }
 }
 
 OPTIMIZATION_SETTINGS = {
     'VISUALIZE_PROCESS': True,
-    'INITIAL_TEMPERATURE': 250.0,
-    'COOLING_RATE': 0.98,
-    'MIN_TEMPERATURE': 0.1,
-    'ITERATIONS_PER_TEMPERATURE': 50
+    'INITIAL_TEMPERATURE': 1000.0,
+    'COOLING_RATE': 0.99,
+    'MIN_TEMPERATURE': 0.075,
+    'ITERATIONS_PER_TEMPERATURE': 100
 }
