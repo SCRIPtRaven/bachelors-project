@@ -4,21 +4,7 @@ from dataclasses import dataclass
 from typing import Tuple
 
 from config.delivery_settings import PACKAGE_CONSTRAINTS, DRIVER_CONSTRAINTS, INNER_POINTS_RATIO
-
-
-# TODO : Implement centralized data type handling and definitions
-@dataclass
-class DeliveryPoint:
-    coordinates: Tuple[float, float]
-    weight: float
-    volume: float
-
-
-@dataclass
-class DeliveryDriver:
-    id: int
-    weight_capacity: float  # in kg
-    volume_capacity: float  # in cubic meters
+from models import DeliveryPoint, Driver
 
 
 class GeolocationService:
@@ -161,7 +147,7 @@ class GeolocationService:
         drivers = []
         for i in range(num_drivers):
             weight_capacity, volume_capacity = GeolocationService.generate_random_driver_properties()
-            drivers.append(DeliveryDriver(
+            drivers.append(Driver(
                 id=i + 1,
                 weight_capacity=weight_capacity,
                 volume_capacity=volume_capacity

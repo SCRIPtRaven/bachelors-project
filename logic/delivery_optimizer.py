@@ -10,22 +10,7 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from tqdm import tqdm
 
 from config.optimization_settings import OPTIMIZATION_SETTINGS
-
-
-@dataclass
-class Delivery:
-    coordinates: Tuple[float, float]
-    weight: float
-    volume: float
-
-
-@dataclass
-class DeliveryAssignment:
-    driver_id: int
-    delivery_indices: List[int]
-    total_weight: float
-    total_volume: float
-    fitness: float = float('inf')
+from models import Delivery, DeliveryAssignment
 
 
 class SimulatedAnnealingOptimizer(QObject):
