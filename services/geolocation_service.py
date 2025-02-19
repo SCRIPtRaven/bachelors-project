@@ -1,7 +1,5 @@
 import math
 import random
-from dataclasses import dataclass
-from typing import Tuple
 
 from config.delivery_settings import PACKAGE_CONSTRAINTS, DRIVER_CONSTRAINTS, INNER_POINTS_RATIO
 from models import DeliveryPoint, Driver
