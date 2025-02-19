@@ -4,8 +4,7 @@ from PyQt5 import QtCore
 
 from config.paths import get_graph_file_path, get_travel_times_path
 from data import graph_manager
-from data.graph_manager import download_and_save_graph
-from logic.routing import get_largest_connected_component
+from data.graph_manager import download_and_save_graph, get_largest_connected_component
 
 
 class GraphLoadWorker(QtCore.QThread):

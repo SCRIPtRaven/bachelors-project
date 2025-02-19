@@ -1,5 +1,6 @@
 import os
 
+import networkx as nx
 import osmnx as ox
 import pandas as pd
 
@@ -76,3 +77,27 @@ def update_travel_times_from_csv(G, csv_path):
         print("Travel times updated successfully from CSV.")
     except Exception as e:
         print(f"Error updating travel times: {e}")
+
+
+def get_largest_connected_component(G):
+    """
+    Returns the largest strongly connected component of the graph.
+
+    In a road network, a strongly connected component is a subset of nodes where
+    every node can be reached from every other node. This is important for
+    ensuring valid routes can be found between any two points.
+
+    Args:
+        G: NetworkX graph representing the road network
+
+    Returns:
+        NetworkX graph containing only the largest connected component
+    """
+    if G.is_directed():
+        connected_components = list(nx.strongly_connected_components(G))
+    else:
+        connected_components = list(nx.connected_components(G))
+
+    largest_component = max(connected_components, key=len)
+
+    return G.subgraph(largest_component).copy()

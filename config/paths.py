@@ -19,7 +19,3 @@ def get_travel_times_path(city_name):
     """
     city_filename = city_name.split(',')[0].strip().lower() + "_travel_times.csv"
     return RESOURCES_DIR / city_filename
-
-DEFAULT_CITY = "Kaunas, Lithuania"
-DATA_FILENAME = get_graph_file_path(DEFAULT_CITY)
-TRAVEL_TIMES_CSV = get_travel_times_path(DEFAULT_CITY)

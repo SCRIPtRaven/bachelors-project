@@ -1,5 +1,5 @@
 import math
-from colorsys import rgb_to_hsv, hsv_to_rgb
+from colorsys import hsv_to_rgb
 
 
 class RouteColorManager:
@@ -77,27 +77,3 @@ class RouteColorManager:
 
         self.style_cache[cache_key] = style
         return style
-
-    def get_perceptual_distance(self, color1, color2):
-        """
-        Calculates perceptual distance between two colors using a simplified CIEDE2000 approach.
-        """
-        rgb1 = tuple(int(color1.lstrip('#')[i:i + 2], 16) / 255 for i in (0, 2, 4))
-        rgb2 = tuple(int(color2.lstrip('#')[i:i + 2], 16) / 255 for i in (0, 2, 4))
-
-        hsv1 = rgb_to_hsv(*rgb1)
-        hsv2 = rgb_to_hsv(*rgb2)
-
-        hue_diff = min(abs(hsv1[0] - hsv2[0]), 1 - abs(hsv1[0] - hsv2[0]))
-
-        hue_weight = 0.5
-        saturation_weight = 0.25
-        value_weight = 0.25
-
-        distance = math.sqrt(
-            (hue_diff * hue_weight) ** 2 +
-            ((hsv1[1] - hsv2[1]) * saturation_weight) ** 2 +
-            ((hsv1[2] - hsv2[2]) * value_weight) ** 2
-        )
-
-        return distance

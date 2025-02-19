@@ -42,9 +42,6 @@ class MainWindow(QWidget):
         self.btn_load.setFixedHeight(50)
         self.btn_load.setStyleSheet("QPushButton { font-size: 14px; }")
 
-        self.btn_route = QPushButton("Compute Route")
-        self.btn_route.hide()
-
         self.delivery_input = QLineEdit()
         self.delivery_input.setPlaceholderText("Enter number of delivery points")
         self.delivery_input.hide()
@@ -80,7 +77,6 @@ class MainWindow(QWidget):
         self.btn_generate_deliveries.clicked.connect(self.generate_deliveries)
         self.btn_tsp.clicked.connect(self.map_widget.find_shortest_route)
         self.btn_load.clicked.connect(self.handle_load_data)
-        self.btn_route.clicked.connect(self.map_widget.compute_route)
         self.map_widget.load_completed.connect(self.show_full_ui)
         self.btn_generate_drivers.clicked.connect(self.generate_drivers)
 
@@ -151,12 +147,6 @@ class MainWindow(QWidget):
         controls_layout = QVBoxLayout(controls_widget)
         controls_layout.setContentsMargins(10, 10, 10, 10)
 
-        top_section = QWidget()
-        top_layout = QVBoxLayout(top_section)
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.addWidget(self.btn_route)
-        top_layout.addStretch()
-
         bottom_section = QWidget()
         bottom_layout = QVBoxLayout(bottom_section)
         bottom_layout.setContentsMargins(0, 0, 0, 0)
@@ -175,7 +165,6 @@ class MainWindow(QWidget):
         bottom_layout.addLayout(driver_controls)
         bottom_layout.addWidget(self.btn_tsp)
 
-        controls_layout.addWidget(top_section, 1)
         controls_layout.addWidget(bottom_section, 0)
 
         stats_widget = QWidget()
@@ -222,7 +211,6 @@ class MainWindow(QWidget):
         self.setLayout(self.main_layout)
 
         self.map_widget.show()
-        self.btn_route.show()
         self.delivery_input.show()
         self.btn_generate_deliveries.show()
         self.btn_tsp.show()
