@@ -4,7 +4,7 @@ import networkx as nx
 import osmnx as ox
 import pandas as pd
 
-from config.settings import DEFAULT_NETWORK_TYPE
+from config.app_settings import DEFAULT_NETWORK_TYPE
 
 
 def download_and_save_graph(place_name="Kaunas, Lithuania"):

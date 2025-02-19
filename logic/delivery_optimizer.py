@@ -9,7 +9,7 @@ import osmnx as ox
 from PyQt5.QtCore import QObject, pyqtSignal
 from tqdm import tqdm
 
-from config.settings import OPTIMIZATION_SETTINGS
+from config.optimization_settings import OPTIMIZATION_SETTINGS
 
 
 @dataclass

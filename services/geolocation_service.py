@@ -3,7 +3,7 @@ import random
 from dataclasses import dataclass
 from typing import Tuple
 
-from config.settings import PACKAGE_CONSTRAINTS, DRIVER_CONSTRAINTS, INNER_POINTS_RATIO
+from config.delivery_settings import PACKAGE_CONSTRAINTS, DRIVER_CONSTRAINTS, INNER_POINTS_RATIO
 
 
 # TODO : Implement centralized data type handling and definitions

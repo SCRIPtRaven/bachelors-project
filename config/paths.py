@@ -2,7 +2,9 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).parent.parent
 RESOURCES_DIR = BASE_DIR / 'resources'
+
 MAP_HTML = RESOURCES_DIR / 'map.html'
+
 
 def get_graph_file_path(city_name):
     """
@@ -11,6 +13,7 @@ def get_graph_file_path(city_name):
     """
     city_filename = city_name.split(',')[0].strip().lower() + ".graphml"
     return RESOURCES_DIR / city_filename
+
 
 def get_travel_times_path(city_name):
     """

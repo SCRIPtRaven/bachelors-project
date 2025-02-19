@@ -1,9 +1,3 @@
-# Route settings
-DEFAULT_NETWORK_TYPE = 'drive'
-
-# TSP settings
-INNER_POINTS_RATIO = 0.70  # Ratio of points to generate in inner area
-
 PACKAGE_CONSTRAINTS = {
     'weight': {  # in kg
         'min': 2,
@@ -30,10 +24,4 @@ DRIVER_CONSTRAINTS = {
     }
 }
 
-OPTIMIZATION_SETTINGS = {
-    'VISUALIZE_PROCESS': False,
-    'INITIAL_TEMPERATURE': 250.0,
-    'COOLING_RATE': 0.99,
-    'MIN_TEMPERATURE': 0.075,
-    'ITERATIONS_PER_TEMPERATURE': 50
-}
+INNER_POINTS_RATIO = 0.70  # Ratio of points to generate in inner area
