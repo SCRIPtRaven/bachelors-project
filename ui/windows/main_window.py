@@ -1,3 +1,4 @@
+from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QMessageBox, QWidget, QFrame
 
 from ui.widgets.map_widget import MapWidget
@@ -19,11 +20,9 @@ class MainWindow(QWidget):
 
     def init_widgets(self):
         """Initialize all widgets but keep them hidden initially"""
-        # Map widget
         self.map_widget = MapWidget(self)
         self.map_widget.hide()
 
-        # Stats widget
         self.stats_widget = QWidget()
         self.stats_layout = QVBoxLayout(self.stats_widget)
         self.stats_widget.hide()
@@ -37,7 +36,6 @@ class MainWindow(QWidget):
         self.stats_layout.addWidget(self.total_distance_label)
         self.stats_layout.addStretch()
 
-        # Control widgets
         self.btn_load = QPushButton("Load Map Data")
         self.btn_load.setFixedHeight(50)
         self.btn_load.setStyleSheet("QPushButton { font-size: 14px; }")
@@ -52,13 +50,40 @@ class MainWindow(QWidget):
         self.btn_tsp = QPushButton("Find Shortest Route")
         self.btn_tsp.hide()
 
-        # Driver input and generation
         self.driver_input = QLineEdit()
         self.driver_input.setPlaceholderText("Enter number of drivers")
         self.driver_input.hide()
 
         self.btn_generate_drivers = QPushButton("Generate Drivers")
         self.btn_generate_drivers.hide()
+
+        self.solution_switch = QtWidgets.QPushButton("Simulated Annealing")
+        self.solution_switch.setCheckable(True)
+        self.solution_switch.setEnabled(False)
+        self.solution_switch.clicked.connect(self.on_solution_switch_clicked)
+        self.solution_switch.hide()
+        self.solution_switch.setStyleSheet("""
+                QPushButton {
+                    min-height: 35px;
+                    min-width: 200px;
+                    background-color: #4CAF50;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 5px 15px;
+                    text-align: center;
+                    transition: background-color 0.3s;
+                }
+                QPushButton:checked {
+                    background-color: #2196F3;
+                }
+                QPushButton:hover {
+                    opacity: 0.9;
+                }
+                QPushButton:disabled {
+                    background-color: #cccccc;
+                }
+            """)
 
     def init_layout(self):
         """Set up the initial layout with just the load button"""
@@ -164,6 +189,9 @@ class MainWindow(QWidget):
         bottom_layout.addLayout(delivery_controls)
         bottom_layout.addLayout(driver_controls)
         bottom_layout.addWidget(self.btn_tsp)
+        self.solution_switch.setFixedWidth(200)
+        bottom_layout.addSpacing(10)
+        bottom_layout.addWidget(self.solution_switch, alignment=QtCore.Qt.AlignCenter)
 
         controls_layout.addWidget(bottom_section, 0)
 
@@ -237,3 +265,11 @@ class MainWindow(QWidget):
 
         num_drivers = int(num_drivers)
         self.map_widget.generate_delivery_drivers(num_drivers)
+
+    def on_solution_switch_clicked(self):
+        if self.solution_switch.isChecked():
+            self.solution_switch.setText("Greedy")
+            self.map_widget.visualization_controller.switch_solution_view("Greedy")
+        else:
+            self.solution_switch.setText("Simulated Annealing")
+            self.map_widget.visualization_controller.switch_solution_view("Simulated Annealing")

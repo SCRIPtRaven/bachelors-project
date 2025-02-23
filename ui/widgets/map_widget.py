@@ -1,3 +1,4 @@
+import osmnx as ox
 from PyQt5 import QtCore, QtWidgets
 
 from ui.map.controllers.delivery_controller import DeliveryController
@@ -73,13 +74,17 @@ class MapWidget(BaseMapWidget):
                 self.optimization_thread.deleteLater()
 
             self.optimization_thread = QtCore.QThread()
+
             self.visualization_controller.prepare_optimization(
                 self.delivery_drivers,
-                self.delivery_controller.snapped_delivery_points
-            )
+                self.delivery_controller.snapped_delivery_points,
+                self
+                )
 
             self.visualization_controller.moveToThread(self.optimization_thread)
-            self.optimization_thread.started.connect(self.visualization_controller.run_optimization)
+            self.optimization_thread.started.connect(
+                self.visualization_controller.run_optimization
+            )
             self.setEnabled(False)
             self.optimization_thread.start()
 
@@ -110,7 +115,34 @@ class MapWidget(BaseMapWidget):
             return False
         return True
 
-    # Properties to maintain compatibility with existing code
+    def get_main_window(self):
+        """Get the MainWindow instance"""
+        parent = self.parent()
+        while parent is not None:
+            if isinstance(parent, QtWidgets.QWidget) and hasattr(parent, 'solution_switch'):
+                return parent
+            parent = parent.parent()
+        return None
+
+    def get_warehouse_location(self):
+        """Calculate the center of the graph to place the warehouse"""
+        if not self.G:
+            return None
+
+        lats = []
+        lons = []
+        for _, data in self.G.nodes(data=True):
+            lats.append(data['y'])
+            lons.append(data['x'])
+
+        center_lat = sum(lats) / len(lats)
+        center_lon = sum(lons) / len(lons)
+
+        warehouse_node = ox.nearest_nodes(self.G, X=center_lon, Y=center_lat)
+        warehouse_coords = (self.G.nodes[warehouse_node]['y'], self.G.nodes[warehouse_node]['x'])
+
+        return warehouse_coords
+
     @property
     def snapped_delivery_points(self):
         return self.delivery_controller.snapped_delivery_points

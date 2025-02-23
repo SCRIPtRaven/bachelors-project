@@ -17,18 +17,10 @@ class BaseMapWidget(QtWebEngineWidgets.QWebEngineView):
         self.G = None
         self.current_city = None
 
-        initial_coords, initial_zoom = get_city_coordinates("Kaunas, Lithuania")
-        self.map = folium.Map(location=initial_coords, zoom_start=initial_zoom)
-
-        self.map.save(MAP_HTML)
-        url = QtCore.QUrl.fromLocalFile(os.path.abspath(MAP_HTML))
-        self.setUrl(url)
-
     def init_map(self, center=None, zoom=None):
-        if center is None:
+        """Initialize or reinitialize the map with given parameters"""
+        if center is None or zoom is None:
             center, zoom = get_city_coordinates("Kaunas, Lithuania")
-        if zoom is None:
-            zoom = 12
 
         self.map = folium.Map(location=center, zoom_start=zoom)
         self.load_map()
