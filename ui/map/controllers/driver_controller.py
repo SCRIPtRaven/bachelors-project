@@ -11,7 +11,7 @@ class DriverController(QtCore.QObject):
         self.delivery_drivers = []
         self.driver_labels = {}
         self.selected_driver_id = None
-        self.visualization_queue = None  # Set by MapWidget
+        self.visualization_queue = None
 
     def set_visualization_queue(self, queue):
         self.visualization_queue = queue
@@ -39,19 +39,16 @@ class DriverController(QtCore.QObject):
                 widget.setParent(None)
 
     def _create_driver_list(self, layout):
-        # Add header
         header_label = QtWidgets.QLabel("Delivery Drivers:")
         header_label.setStyleSheet("font-weight: bold; padding: 5px;")
         layout.addWidget(header_label)
 
-        # Create scroll area
         scroll_area = self._create_scroll_area()
         driver_container = QtWidgets.QWidget()
         driver_layout = QtWidgets.QVBoxLayout(driver_container)
         driver_layout.setSpacing(5)
         driver_layout.setContentsMargins(5, 5, 5, 5)
 
-        # Add driver labels
         self.driver_labels = {}
         for driver in self.delivery_drivers:
             driver_label = self._create_driver_label(driver)
@@ -85,6 +82,10 @@ class DriverController(QtCore.QObject):
         return label
 
     def on_driver_double_clicked(self, driver_id):
+        """
+        Handle driver selection by re-visualizing the current solution with updated selection state.
+        This ensures we maintain a consistent visualization approach throughout the application.
+        """
         if not hasattr(self.base_map, 'current_solution') or self.base_map.current_solution is None:
             return
 

@@ -2,7 +2,7 @@ import math
 import random
 
 from config.delivery_settings import PACKAGE_CONSTRAINTS, DRIVER_CONSTRAINTS, INNER_POINTS_RATIO
-from models import DeliveryPoint, Driver
+from models import Driver, Delivery
 
 
 class GeolocationService:
@@ -24,36 +24,6 @@ class GeolocationService:
         volume = round(volume, 3)
 
         return weight, volume
-
-    @staticmethod
-    def generate_grid_points(min_lat, max_lat, min_lon, max_lon, num_points):
-        try:
-            lat_range = max_lat - min_lat
-            lon_range = max_lon - min_lon
-            grid_size = math.ceil(math.sqrt(num_points))
-
-            step_lat = lat_range / grid_size
-            step_lon = lon_range / grid_size
-
-            points = []
-            for i in range(grid_size):
-                for j in range(grid_size):
-                    if len(points) >= num_points:
-                        break
-                    lat = min_lat + i * step_lat + random.uniform(0, step_lat)
-                    lon = min_lon + j * step_lon + random.uniform(0, step_lon)
-                    weight, volume = GeolocationService.generate_random_package_properties()
-                    points.append(DeliveryPoint(
-                        coordinates=(lat, lon),
-                        weight=weight,
-                        volume=volume
-                    ))
-                if len(points) >= num_points:
-                    break
-            return points
-        except Exception as e:
-            print(f"Error generating grid points: {e}")
-            return []
 
     @staticmethod
     def generate_delivery_points(bounds, num_points):
@@ -108,7 +78,7 @@ class GeolocationService:
 
             if not too_close:
                 weight, volume = GeolocationService.generate_random_package_properties()
-                points.append(DeliveryPoint(
+                points.append(Delivery(
                     coordinates=(lat, lon),
                     weight=weight,
                     volume=volume
