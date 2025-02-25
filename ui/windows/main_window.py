@@ -57,6 +57,26 @@ class MainWindow(QWidget):
         self.btn_generate_drivers = QPushButton("Generate Drivers")
         self.btn_generate_drivers.hide()
 
+        self.btn_simulate = QPushButton("Simulate Deliveries")
+        self.btn_simulate.setEnabled(False)
+        self.btn_simulate.hide()
+        self.btn_simulate.setStyleSheet("""
+            QPushButton {
+                min-height: 35px;
+                background-color: #FF9800;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 5px 15px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+
         self.solution_switch = QtWidgets.QPushButton("Simulated Annealing")
         self.solution_switch.setCheckable(True)
         self.solution_switch.setEnabled(False)
@@ -104,6 +124,7 @@ class MainWindow(QWidget):
         self.btn_load.clicked.connect(self.handle_load_data)
         self.map_widget.load_completed.connect(self.show_full_ui)
         self.btn_generate_drivers.clicked.connect(self.generate_drivers)
+        self.btn_simulate.clicked.connect(self.map_widget.run_simulation)
 
     def handle_load_data(self):
         """Open city selector dialog and handle the city selection"""
@@ -192,6 +213,9 @@ class MainWindow(QWidget):
         self.solution_switch.setFixedWidth(200)
         bottom_layout.addSpacing(10)
         bottom_layout.addWidget(self.solution_switch, alignment=QtCore.Qt.AlignCenter)
+        bottom_layout.addSpacing(10)
+        bottom_layout.addWidget(self.btn_simulate, alignment=QtCore.Qt.AlignCenter)
+        self.btn_simulate.show()
 
         controls_layout.addWidget(bottom_section, 0)
 

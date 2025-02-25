@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Delivery Route Planner</title>
+    
+        <!-- Leaflet CSS -->
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+        <style>
+            html, body {
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+    
+            #map {
+                height: 100%;
+                width: 100%;
+            }
+    
+            .driver-marker {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 50%;
+                width: 20px;
+                height: 20px;
+                font-weight: bold;
+                color: white;
+                border: 2px solid white;
+                box-shadow: 0 0 3px rgba(0,0,0,0.5);
+            }
+    
+            .leaflet-popup-content {
+                min-width: 150px;
+            }
+    
+            #loading-indicator {
+                position: absolute;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background-color: rgba(255, 255, 255, 0.8);
+                padding: 15px 25px;
+                border-radius: 10px;
+                display: none;
+                text-align: center;
+                z-index: 1000;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+                font-weight: bold;
+            }
+    
+            .spinner {
+                border: 5px solid #f3f3f3;
+                border-top: 5px solid #3498db;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 10px auto;
+            }
+    
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        </style>
+    </head>
+    <body>
+        <div id="map"></div>
+    
+        <div id="loading-indicator">
+            <div class="spinner"></div>
+            <div>Optimizing Routes...</div>
+        </div>
+    
+        <!-- Leaflet JS -->
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+        <!-- QWebChannel for communication with Python -->
+        <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+
+        <script src="map.js"></script>
+    
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                initMap({{CENTER_LAT}}, {{CENTER_LON}}, {{ZOOM_LEVEL}});
+            });
+        </script>
+    </body>
+</html>

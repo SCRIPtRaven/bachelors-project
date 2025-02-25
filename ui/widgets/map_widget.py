@@ -4,14 +4,14 @@ from PyQt5 import QtCore, QtWidgets
 from ui.map.controllers.delivery_controller import DeliveryController
 from ui.map.controllers.driver_controller import DriverController
 from ui.map.controllers.visualization_controller import VisualizationController
-from ui.map.core.map_base import BaseMapWidget
+from ui.map.core.leaflet_map_widget import LeafletMapWidget
 from ui.map.utils.visualization_queue import VisualizationQueue
 from ui.workers.graph_load_worker import GraphLoadWorker
 from utils.geolocation import get_city_coordinates
 from utils.route_color_manager import RouteColorManager
 
 
-class MapWidget(BaseMapWidget):
+class MapWidget(LeafletMapWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -79,7 +79,7 @@ class MapWidget(BaseMapWidget):
                 self.delivery_drivers,
                 self.delivery_controller.snapped_delivery_points,
                 self
-                )
+            )
 
             self.visualization_controller.moveToThread(self.optimization_thread)
             self.optimization_thread.started.connect(
@@ -124,6 +124,29 @@ class MapWidget(BaseMapWidget):
             parent = parent.parent()
         return None
 
+    @QtCore.pyqtSlot(object)
+    def updateVisualizationFromBackground(self, data):
+        """Update the visualization with data calculated in a background thread"""
+        try:
+            self.clear_layer("routes")
+            self.clear_layer("deliveries")
+
+            self.update_layer("deliveries", data["delivery_points"])
+
+            for route in data["routes"]:
+                self.add_route(
+                    route["id"],
+                    route["driver_id"],
+                    route["path"],
+                    route["style"],
+                    route["popup"]
+                )
+
+        except Exception as e:
+            print(f"Error updating visualization from background: {e}")
+            import traceback
+            traceback.print_exc()
+
     def get_warehouse_location(self):
         """Calculate the center of the graph to place the warehouse"""
         if not self.G:
@@ -143,6 +166,11 @@ class MapWidget(BaseMapWidget):
 
         return warehouse_coords
 
+    def run_simulation(self):
+        """Run a simulation of the delivery routes"""
+        if hasattr(self.visualization_controller, 'run_simulation'):
+            self.visualization_controller.run_simulation()
+
     @property
     def snapped_delivery_points(self):
         return self.delivery_controller.snapped_delivery_points
@@ -150,10 +178,6 @@ class MapWidget(BaseMapWidget):
     @property
     def delivery_drivers(self):
         return self.driver_controller.delivery_drivers
-
-    @property
-    def selected_driver_id(self):
-        return self.driver_controller.selected_driver_id
 
     @property
     def current_solution(self):
@@ -167,3 +191,13 @@ class MapWidget(BaseMapWidget):
     def addToVisualizationQueue(self, data):
         """Safe method to add items to visualization queue from other threads"""
         self.visualization_queue.append(data)
+
+    @property
+    def selected_driver_id(self):
+        if hasattr(self, '_selected_driver_id'):
+            return self._selected_driver_id
+        return self.driver_controller.selected_driver_id
+
+    @selected_driver_id.setter
+    def selected_driver_id(self, value):
+        self._selected_driver_id = value

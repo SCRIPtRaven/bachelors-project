@@ -1,9 +1,7 @@
-import folium
 from PyQt5 import QtWidgets, QtCore
 
 from services.geolocation_service import GeolocationService
 from ui.map.utils.map_utils import find_accessible_node
-from utils.geolocation import get_city_coordinates
 
 
 class DeliveryController(QtCore.QObject):
@@ -41,11 +39,14 @@ class DeliveryController(QtCore.QObject):
                 f"Error generating deliveries: {str(e)}"
             )
             print(f"Detailed error: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _process_delivery_points(self, delivery_points):
+        """Process and snap delivery points to the road network"""
         self.snapped_delivery_points = []
-        center, zoom = get_city_coordinates(self.base_map.current_city or "Kaunas, Lithuania")
-        self.base_map.init_map(center, zoom)
+
+        self.base_map.clear_layer("deliveries")
 
         successful_points = 0
         skipped_points = 0
@@ -61,14 +62,6 @@ class DeliveryController(QtCore.QObject):
                     (snapped_lat, snapped_lon, point.weight, point.volume)
                 )
 
-                self._add_delivery_marker(
-                    successful_points,
-                    snapped_lat,
-                    snapped_lon,
-                    point.weight,
-                    point.volume
-                )
-
                 successful_points += 1
 
             except ValueError:
@@ -78,25 +71,14 @@ class DeliveryController(QtCore.QObject):
                 print(f"Error processing point ({lat:.6f}, {lon:.6f}): {str(e)}")
                 skipped_points += 1
 
+        if self.snapped_delivery_points:
+            self.base_map.add_delivery_points(self.snapped_delivery_points)
+
         if skipped_points > 0:
             self._show_generation_results(successful_points, skipped_points)
 
-        self.base_map.load_map()
-
-    def _add_delivery_marker(self, index, lat, lon, weight, volume):
-        folium.CircleMarker(
-            location=(lat, lon),
-            radius=6,
-            color='orange',
-            fill=True,
-            fill_color='orange',
-            fill_opacity=0.7,
-            popup=f'Delivery Point {index + 1}<br>'
-                  f'Weight: {weight} kg<br>'
-                  f'Volume: {volume} m³'
-        ).add_to(self.base_map.map)
-
     def _show_generation_results(self, successful, skipped):
+        """Show a message with the results of delivery point generation"""
         QtWidgets.QMessageBox.information(
             self.base_map,
             "Delivery Points Generated",
