@@ -1,6 +1,7 @@
 import math
 import random
 import statistics
+import time
 from copy import deepcopy
 from typing import List, Tuple
 
@@ -238,7 +239,6 @@ class SimulatedAnnealingOptimizer(QObject):
                         # Hard acceptance if strictly better
                         if neighbor_time < current_time and neighbor_constraint_score >= current_constraint_score:
                             current_solution = neighbor_solution
-                            current_time = neighbor_time
                             current_constraint_score = neighbor_constraint_score
                             improved = True
                             last_improvement = iteration_count
@@ -259,7 +259,6 @@ class SimulatedAnnealingOptimizer(QObject):
 
                             if delta < 0 or random.random() < math.exp(-delta / temperature):
                                 current_solution = neighbor_solution
-                                current_time = neighbor_time
                                 current_constraint_score = neighbor_constraint_score
                                 improved = True
                                 last_improvement = iteration_count
@@ -270,6 +269,12 @@ class SimulatedAnnealingOptimizer(QObject):
                                     self.best_constraint_score = neighbor_constraint_score
 
                         iteration_count += 1
+
+                        current_time = time.time()
+                        if OPTIMIZATION_SETTINGS['VISUALIZE_PROCESS'] and (
+                                current_time - self.last_update) >= self.update_interval:
+                            self.update_visualization.emit(deepcopy(self.best_solution), self.unassigned_deliveries)
+                            self.last_update = current_time
 
                         progress.set_description(
                             f"Time: {self.format_time(self.best_time)} | "

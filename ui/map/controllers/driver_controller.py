@@ -84,17 +84,28 @@ class DriverController(QtCore.QObject):
     def on_driver_double_clicked(self, driver_id):
         """
         Handle driver selection by re-visualizing the current solution with updated selection state.
-        This ensures we maintain a consistent visualization approach throughout the application.
         """
         if not hasattr(self.base_map, 'current_solution') or self.base_map.current_solution is None:
             return
 
-        self.selected_driver_id = None if getattr(self, 'selected_driver_id', None) == driver_id else driver_id
+        self.selected_driver_id = None if self.selected_driver_id == driver_id else driver_id
+
+        self.base_map._selected_driver_id = self.selected_driver_id
 
         for d_id, label in self.driver_labels.items():
             label.setSelected(d_id == self.selected_driver_id)
 
-        if self.visualization_queue and hasattr(self.base_map, 'current_solution'):
-            self.visualization_queue.append(
-                (self.base_map.current_solution, self.base_map.unassigned_deliveries)
-            )
+        if hasattr(self.base_map, 'visualization_controller'):
+            current_solution = self.base_map.visualization_controller.current_solution
+            unassigned = self.base_map.visualization_controller.unassigned_deliveries
+
+            if hasattr(self.base_map.visualization_controller, 'last_visualized_solution'):
+                delattr(self.base_map.visualization_controller, 'last_visualized_solution')
+
+            from copy import deepcopy
+            current_solution = deepcopy(current_solution)
+
+            if current_solution:
+                self.base_map.visualization_controller.update_visualization(
+                    current_solution, unassigned
+                )
