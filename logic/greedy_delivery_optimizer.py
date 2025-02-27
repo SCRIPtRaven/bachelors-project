@@ -1,149 +1,115 @@
-import math
+import time
 
-import networkx as nx
-import osmnx as ox
-from PyQt5.QtCore import pyqtSignal, QObject
 from tqdm import tqdm
 
-from logic.delivery_optimizer import SimulatedAnnealingOptimizer
-from models import DeliveryAssignment, Delivery
+from logic.base_delivery_optimizer import DeliveryOptimizer
+from models import DeliveryAssignment
 
 
-class GreedyOptimizer(QObject):
-    update_visualization = pyqtSignal(object, object)
-    finished = pyqtSignal(object, object)
-
-    def __init__(self, drivers, delivery_tuples, G, map_widget):
-        super().__init__()
-        self.drivers = drivers
-        self.deliveries = [
-            Delivery(coordinates=(d[0], d[1]), weight=d[2], volume=d[3])
-            for d in delivery_tuples
-        ]
-        self.G = G
-        self.map_widget = map_widget
-        self.time_cache = {}
-        self.best_solution = None
-        self.best_time = float('inf')
-        self.best_constraint_score = 0.0
-        self.unassigned_deliveries = set()
-
-        self._precompute_travel_time_matrix()
-
-    def _precompute_travel_time_matrix(self):
-        """
-        Precompute a matrix of travel times (in seconds) between the warehouse and
-        all delivery points (and between deliveries themselves).
-        """
-        warehouse = self.map_widget.get_warehouse_location()
-        self.all_points = [warehouse] + [delivery.coordinates for delivery in self.deliveries]
-        self.point_to_index = {pt: idx for idx, pt in enumerate(self.all_points)}
-        self.all_nodes = [ox.nearest_nodes(self.G, X=pt[1], Y=pt[0]) for pt in self.all_points]
-
-        n = len(self.all_nodes)
-        self.travel_time_matrix = {}
-        for i in range(n):
-            for j in range(i, n):
-                try:
-                    ttime = nx.shortest_path_length(
-                        self.G, self.all_nodes[i], self.all_nodes[j], weight='travel_time'
-                    )
-                except Exception:
-                    try:
-                        distance = nx.shortest_path_length(
-                            self.G, self.all_nodes[i], self.all_nodes[j], weight='length'
-                        )
-                        ttime = distance / (20 * 1000 / 3600)
-                    except Exception:
-                        print("Using fallback time for route (VERY BAD)")
-                        ttime = 1800
-                self.travel_time_matrix[(i, j)] = ttime
-                self.travel_time_matrix[(j, i)] = ttime
-
-    def _euclidean_distance(self, p1: tuple, p2: tuple) -> float:
-        """Simple Euclidean distance; used only for a sorting heuristic."""
-        return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+class GreedyOptimizer(DeliveryOptimizer):
+    """
+    A pure greedy optimization algorithm for vehicle routing problems that makes locally
+    optimal choices at each step without any subsequent improvement phases.
+    """
 
     def optimize(self):
+        try:
+            start_time = time.time()
+            progress_bar = tqdm(total=2, desc="Greedy optimization")
+
+            # Phase 1: Construct balanced initial solution
+            progress_bar.set_description("Phase 1: Balanced delivery assignment")
+            solution, unassigned = self._construct_initial_solution()
+
+            progress_bar.update(1)
+            progress_bar.set_description("Phase 2: Route optimization")
+
+            # Phase 2: Optimize routes using nearest neighbor
+            for assignment in solution:
+                if len(assignment.delivery_indices) > 1:
+                    self._optimize_route_order(assignment)
+
+            final_cost = self._evaluate_solution(solution, unassigned)
+            total_time = self.calculate_total_time(solution)
+            driver_utilization = self._calculate_driver_utilization(solution)
+            balance_score = self._calculate_balance_score(solution)
+
+            progress_bar.update(1)
+            progress_bar.set_postfix({
+                'cost': f"{final_cost:.2f}",
+                'time': f"{total_time / 60:.2f}min",
+                'util': f"{driver_utilization:.2f}%",
+                'balance': f"{balance_score:.2f}",
+                'unassigned': len(unassigned)
+            })
+
+            print("\nGreedy Optimization Results:")
+            print(f"Total Travel Time: {self._format_time_hms(total_time)} ({total_time / 60:.2f} minutes)")
+            print(f"Driver Utilization: {driver_utilization:.2f}%")
+            print(f"Balance Score: {balance_score:.2f}")
+            print(f"Unassigned Deliveries: {len(unassigned)}")
+            print(f"Solution Cost: {final_cost:.2f}")
+            print(f"Computation Time: {time.time() - start_time:.2f} seconds")
+            print("=" * 50)
+
+            progress_bar.close()
+
+            self.finished.emit(solution, unassigned)
+
+            return solution, unassigned
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.finished.emit(None, None)
+            return None, None
+
+    def _construct_initial_solution(self):
         """
-        Greedily build a delivery assignment by iterating over all deliveries (sorted by proximity
-        to the warehouse) and inserting each into the driver’s route at the position that minimizes
-        the extra travel time. Capacity constraints are checked before assignment.
-        Also updates the tqdm progress bar with the current travel time metric.
+        Construct a solution using a balanced greedy assignment approach.
+        Focuses on creating balanced workloads from the start by assigning
+        each delivery to the least utilized driver that can handle it.
         """
-        warehouse = self.map_widget.get_warehouse_location()
+        delivery_indices = list(range(len(self.snapped_delivery_points)))
+        delivery_indices.sort(
+            key=lambda idx: -(self.snapped_delivery_points[idx][2] / self.snapped_delivery_points[idx][3]))
 
         solution = []
-        for driver in self.drivers:
-            solution.append(
-                DeliveryAssignment(
-                    driver_id=driver.id,
-                    delivery_indices=[],
-                    total_weight=0,
-                    total_volume=0
-                )
+        for driver in self.delivery_drivers:
+            assignment = DeliveryAssignment(
+                driver_id=driver.id,
+                delivery_indices=[],
+                total_weight=0.0,
+                total_volume=0.0
             )
+            solution.append(assignment)
 
-        deliveries_with_distance = []
-        for i, delivery in enumerate(self.deliveries):
-            dist = self._euclidean_distance(warehouse, delivery.coordinates)
-            deliveries_with_distance.append((i, delivery, dist))
-        deliveries_with_distance.sort(key=lambda x: x[2])
+        unassigned = set()
 
-        pbar = tqdm(deliveries_with_distance, desc="Assigning Deliveries", ncols=100)
-        for i, delivery, _ in pbar:
-            best_increase = float('inf')
-            best_assignment = None
-            best_insertion_pos = None
+        for idx in delivery_indices:
+            _, _, weight, volume = self.snapped_delivery_points[idx]
 
-            for assignment in solution:
-                driver = next(d for d in self.drivers if d.id == assignment.driver_id)
-                if (assignment.total_weight + delivery.weight > driver.weight_capacity or
-                        assignment.total_volume + delivery.volume > driver.volume_capacity):
-                    continue
+            driver_utils = []
+            for i, assignment in enumerate(solution):
+                driver = next((d for d in self.delivery_drivers if d.id == assignment.driver_id), None)
 
-                current_route = (
-                        [warehouse] +
-                        [self.deliveries[idx].coordinates for idx in assignment.delivery_indices] +
-                        [warehouse]
-                )
+                if (assignment.total_weight + weight <= driver.weight_capacity and
+                        assignment.total_volume + volume <= driver.volume_capacity):
+                    weight_util = assignment.total_weight / driver.weight_capacity
+                    volume_util = assignment.total_volume / driver.volume_capacity
+                    avg_util = (weight_util + volume_util) / 2
 
-                insertion_best = float('inf')
-                insertion_position = None
-                for pos in range(1, len(current_route)):
-                    prev_point = current_route[pos - 1]
-                    next_point = current_route[pos]
-                    old_segment = self.get_cached_travel_time(prev_point, next_point)
-                    new_segment = (self.get_cached_travel_time(prev_point, delivery.coordinates) +
-                                   self.get_cached_travel_time(delivery.coordinates, next_point))
-                    increase = new_segment - old_segment
-                    if increase < insertion_best:
-                        insertion_best = increase
-                        insertion_position = pos
+                    driver_utils.append((i, avg_util))
 
-                if insertion_best < best_increase:
-                    best_increase = insertion_best
-                    best_assignment = assignment
-                    best_insertion_pos = insertion_position
+            if driver_utils:
+                driver_utils.sort(key=lambda x: x[1])
+                best_driver_idx = driver_utils[0][0]
 
-            if best_assignment is not None and best_insertion_pos is not None:
-                best_assignment.delivery_indices.insert(best_insertion_pos - 1, i)
-                best_assignment.total_weight += delivery.weight
-                best_assignment.total_volume += delivery.volume
+                assignment = solution[best_driver_idx]
+                assignment.delivery_indices.append(idx)
+                assignment.total_weight += weight
+                assignment.total_volume += volume
             else:
-                self.unassigned_deliveries.add(i)
+                unassigned.add(idx)
 
-            current_total_time = self.calculate_total_time(solution)
-            pbar.set_description(f"Time: {self.format_time(current_total_time)}")
-
-        self.best_solution = solution
-        self.best_time = self.calculate_total_time(solution)
-        self.best_constraint_score = self.calculate_total_constraint_score(solution)
-        self.finished.emit(self.best_solution, self.unassigned_deliveries)
-
-    calculate_route_time = SimulatedAnnealingOptimizer.calculate_route_time
-    get_cached_travel_time = SimulatedAnnealingOptimizer.get_cached_travel_time
-    calculate_constraint_score = SimulatedAnnealingOptimizer.calculate_constraint_score
-    calculate_total_constraint_score = SimulatedAnnealingOptimizer.calculate_total_constraint_score
-    calculate_total_time = SimulatedAnnealingOptimizer.calculate_total_time
-    format_time = SimulatedAnnealingOptimizer.format_time
+        return solution, unassigned
