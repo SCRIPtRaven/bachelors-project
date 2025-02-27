@@ -170,8 +170,6 @@ class MapHandler(QtCore.QObject):
     @QtCore.pyqtSlot(str, result=str)
     def handleEvent(self, message):
         """Handle an event from JavaScript"""
-        print(f"Message from map: {message}")
-
         if message == "map_initialized":
             self.map_initialized.emit()
 
