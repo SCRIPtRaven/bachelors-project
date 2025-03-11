@@ -1,735 +1,560 @@
 import math
 import random
-import statistics
 import time
 from copy import deepcopy
-from typing import List, Tuple
 
-import networkx as nx
-import osmnx as ox
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5 import QtCore
 from tqdm import tqdm
 
-from config.optimization_settings import OPTIMIZATION_SETTINGS
-from models import Delivery, DeliveryAssignment
+from config import OPTIMIZATION_SETTINGS
+from logic.base_delivery_optimizer import DeliveryOptimizer
+from models import DeliveryAssignment
 
 
-class SimulatedAnnealingOptimizer(QObject):
-    update_visualization = pyqtSignal(object, object)
-    finished = pyqtSignal(object, object)
+class SimulatedAnnealingOptimizer(DeliveryOptimizer):
+    """
+    Optimizer that uses simulated annealing algorithm to find optimal delivery assignments
+    and route ordering by allowing worse solutions early in the optimization process.
+    """
+    update_visualization = QtCore.pyqtSignal(object, object)
 
-    def __init__(self, drivers, delivery_tuples, G, map_widget):
-        super().__init__()
-        self.drivers = drivers
-        self.deliveries = [
-            Delivery(coordinates=(d[0], d[1]), weight=d[2], volume=d[3])
-            for d in delivery_tuples
-        ]
-        self.G = G
-        self.map_widget = map_widget
-        self.time_cache = {}
-        self.best_solution = None
-        self.best_time = float('inf')
-        self.best_constraint_score = 0.0
-        self.unassigned_deliveries = set()
-
-        self.update_interval = 0.5
-        self.last_update = 0
-
-        self._precompute_travel_time_matrix()
-
-    def _precompute_travel_time_matrix(self):
-        """
-        Precompute a matrix of travel times (in seconds) between the warehouse and
-        all delivery points (and between deliveries themselves).
-        """
-        warehouse = self.map_widget.get_warehouse_location()
-        self.all_points = [warehouse] + [delivery.coordinates for delivery in self.deliveries]
-        self.point_to_index = {pt: idx for idx, pt in enumerate(self.all_points)}
-        self.all_nodes = [ox.nearest_nodes(self.G, X=pt[1], Y=pt[0]) for pt in self.all_points]
-
-        self.travel_time_matrix = {}
-        for i in range(len(self.all_nodes)):
-            for j in range(i, len(self.all_nodes)):
-                try:
-                    travel_time = nx.shortest_path_length(
-                        self.G, self.all_nodes[i], self.all_nodes[j], weight='travel_time'
-                    )
-                except Exception:
-                    try:
-                        distance = nx.shortest_path_length(
-                            self.G, self.all_nodes[i], self.all_nodes[j], weight='length'
-                        )
-                        travel_time = distance / (20 * 1000 / 3600)
-                    except Exception:
-                        print("Using fallback time for route (VERY BAD)")
-                        travel_time = 1800
-                self.travel_time_matrix[(i, j)] = travel_time
-                self.travel_time_matrix[(j, i)] = travel_time
-
-    def get_cached_travel_time(self, start: Tuple[float, float], end: Tuple[float, float]) -> float:
-        """
-        Get travel time between two points. If both points were precomputed, use the
-        travel_time_matrix; otherwise, fall back to the on-demand computation.
-        Returns time in seconds.
-        """
-        start_idx = self.point_to_index.get(start)
-        end_idx = self.point_to_index.get(end)
-        if start_idx is not None and end_idx is not None:
-            return self.travel_time_matrix[(start_idx, end_idx)]
-        cache_key = (start, end)
-        if cache_key not in self.time_cache:
-            try:
-                start_node = ox.nearest_nodes(self.G, X=start[1], Y=start[0])
-                end_node = ox.nearest_nodes(self.G, X=end[1], Y=end[0])
-                travel_time = nx.shortest_path_length(
-                    self.G, start_node, end_node, weight='travel_time'
-                )
-                self.time_cache[cache_key] = travel_time
-                self.time_cache[(end, start)] = travel_time
-            except:
-                try:
-                    distance = nx.shortest_path_length(
-                        self.G, start_node, end_node, weight='length'
-                    )
-                    travel_time = distance / (20 * 1000 / 3600)
-                except:
-                    print("Using fallback time for route (VERY BAD)")
-                    travel_time = 1800
-                self.time_cache[cache_key] = travel_time
-                self.time_cache[(end, start)] = travel_time
-        return self.time_cache[cache_key]
-
-    def calculate_route_time(self, points: List[Tuple[float, float]]) -> float:
-        """Calculate total route time between consecutive points in seconds."""
-        if len(points) < 2:
-            return 0
-        return sum(self.get_cached_travel_time(points[i], points[i + 1])
-                   for i in range(len(points) - 1))
-
-    def calculate_total_time(self, solution) -> float:
-        """Calculate total travel time for all routes in the solution in seconds."""
-        total_time = 0
-        warehouse_coords = self.map_widget.get_warehouse_location()
-
-        for assignment in solution:
-            if assignment.delivery_indices:
-                delivery_points = [self.deliveries[i].coordinates for i in assignment.delivery_indices]
-                route_points = [warehouse_coords] + delivery_points + [warehouse_coords]
-                total_time += self.calculate_route_time(route_points)
-
-        return total_time
-
-    def format_time(self, seconds: float) -> str:
-        """Convert seconds into a human-readable HH:MM:SS format."""
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        seconds = int(seconds % 60)
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-
-    def calculate_constraint_score(self, assignment: DeliveryAssignment) -> float:
-        """
-        Calculate how well this assignment uses capacity vs. the "ideal" usage
-        of total system capacity. The closer to 1.0, the better.
-        """
-        if not assignment.delivery_indices:
-            return 0.0
-
-        driver = next(d for d in self.drivers if d.id == assignment.driver_id)
-
-        total_weight_capacity = sum(d.weight_capacity for d in self.drivers)
-        total_volume_capacity = sum(d.volume_capacity for d in self.drivers)
-        total_deliveries_weight = sum(d.weight for d in self.deliveries)
-        total_deliveries_volume = sum(d.volume for d in self.deliveries)
-
-        target_weight_util = min(1.0,
-                                 total_deliveries_weight / total_weight_capacity) if total_weight_capacity > 0 else 1.0
-        target_volume_util = min(1.0,
-                                 total_deliveries_volume / total_volume_capacity) if total_volume_capacity > 0 else 1.0
-
-        weight_util = 0.0
-        volume_util = 0.0
-        if driver.weight_capacity > 0:
-            weight_util = (assignment.total_weight / driver.weight_capacity) / target_weight_util
-        if driver.volume_capacity > 0:
-            volume_util = (assignment.total_volume / driver.volume_capacity) / target_volume_util
-
-        weight_score = min(1.0, weight_util)
-        volume_score = min(1.0, volume_util)
-
-        return (weight_score + volume_score) / 2.0
-
-    def calculate_total_constraint_score(self, solution: List[DeliveryAssignment]) -> float:
-        if not solution:
-            return 0.0
-
-        individual_scores = [self.calculate_constraint_score(a) for a in solution if a.delivery_indices]
-
-        if not individual_scores:
-            return 0.0
-
-        avg_score = sum(individual_scores) / len(individual_scores)
-
-        if len(individual_scores) > 1:
-            imbalance = statistics.stdev(individual_scores)
-            balance_penalty = 0.1 * imbalance
-            return max(0, avg_score - balance_penalty)
-        return avg_score
-
-    def count_total_assigned_deliveries(self, solution: List[DeliveryAssignment]) -> int:
-        """
-        Counts how many deliveries are assigned in the given solution.
-        Useful if you want to refine how you penalize unassigned deliveries,
-        or if you want to compare assigned vs. unassigned quickly.
-        """
-        return sum(len(a.delivery_indices) for a in solution)
+    def __init__(self, delivery_drivers, snapped_delivery_points, G, map_widget):
+        super().__init__(delivery_drivers, snapped_delivery_points, G, map_widget)
 
     def optimize(self):
         """
-        Modified to:
-          1) Use a "meltdown" approach if we stagnate too long (re-randomize).
-          2) Provide higher iteration counts and a slightly different temperature schedule.
+        Optimizes delivery assignments using simulated annealing with adaptive cooling.
+        Dynamically adjusts cooling rate based on improvement progress, slowing cooling
+        when finding promising solutions and accelerating when exploration stagnates.
         """
         try:
-            current_solution = self.generate_initial_solution()
-            initial_time = self.calculate_total_time(current_solution)
+            initial_solution, unassigned = self._generate_initial_solution()
+            current_solution = deepcopy(initial_solution)
+            current_unassigned = set(unassigned)
+            best_solution = deepcopy(current_solution)
+            best_unassigned = set(current_unassigned)
 
-            print(f"\nInitial Solution:")
-            print(f"Cumulative Travel Time: {self.format_time(initial_time)} "
-                  f"({initial_time / 3600:.2f} hours)")
+            current_cost = self._evaluate_solution(current_solution, current_unassigned)
+            best_cost = current_cost
 
-            current_time = initial_time
-            current_constraint_score = self.calculate_total_constraint_score(current_solution)
+            initial_time = self.calculate_total_time(initial_solution)
+            best_time = initial_time
 
-            self.best_solution = deepcopy(current_solution)
-            self.best_time = current_time
-            self.best_constraint_score = current_constraint_score
+            print("\nInitial Solution Statistics:")
+            print(f"Total Travel Time: {self._format_time_hms(initial_time)} ({initial_time / 60:.2f} minutes)")
+            print("-" * 50)
 
-            initial_temperature = OPTIMIZATION_SETTINGS['INITIAL_TEMPERATURE']
-            temperature = initial_temperature
+            temperature = OPTIMIZATION_SETTINGS['INITIAL_TEMPERATURE']
+            base_cooling_rate = OPTIMIZATION_SETTINGS['COOLING_RATE']
+            cooling_rate = base_cooling_rate
             min_temperature = OPTIMIZATION_SETTINGS['MIN_TEMPERATURE']
-            cooling_rate = OPTIMIZATION_SETTINGS['COOLING_RATE']
-            iterations_per_temp = OPTIMIZATION_SETTINGS['ITERATIONS_PER_TEMPERATURE']
-            stagnation_limit = 1000
+            iterations_per_temperature = OPTIMIZATION_SETTINGS['ITERATIONS_PER_TEMPERATURE']
 
-            progress_format = "{desc} {percentage:3.0f}% |{bar}| {n:.1f}/{total:.1f} [{elapsed}<{remaining}]"
+            min_cooling_rate = 0.90
+            max_cooling_rate = 0.98
+            no_improvement_threshold = 3
+            improvement_threshold = 0.01
 
-            with tqdm(
-                    total=initial_temperature,
-                    desc="Optimizing Routes",
-                    bar_format=progress_format,
-                    ncols=100
-            ) as progress:
-                last_temp = initial_temperature
-                iteration_count = 0
-                last_improvement = 0
+            no_improvement_count = 0
 
-                while temperature > min_temperature:
-                    improved = False
+            estimated_iterations = int(
+                math.log(min_temperature / temperature) / math.log(base_cooling_rate)) * iterations_per_temperature
 
-                    for _ in range(iterations_per_temp):
-                        neighbor_solution = self.get_neighbor_solution(
-                            current_solution,
-                            temperature,
-                            initial_temperature
-                        )
-                        neighbor_time = self.calculate_total_time(neighbor_solution)
-                        neighbor_constraint_score = self.calculate_total_constraint_score(neighbor_solution)
+            progress_bar = tqdm(total=estimated_iterations, desc="Optimizing routes")
+            last_update_time = time.time()
+            iteration_count = 0
 
-                        # Hard acceptance if strictly better
-                        if neighbor_time < current_time and neighbor_constraint_score >= current_constraint_score:
-                            current_solution = neighbor_solution
-                            current_constraint_score = neighbor_constraint_score
-                            improved = True
-                            last_improvement = iteration_count
+            while temperature > min_temperature:
+                temp_start_cost = best_cost
 
-                            if (neighbor_time < self.best_time and
-                                    neighbor_constraint_score >= self.best_constraint_score):
-                                self.best_solution = deepcopy(current_solution)
-                                self.best_time = neighbor_time
-                                self.best_constraint_score = neighbor_constraint_score
+                for i in range(iterations_per_temperature):
+                    neighbor_solution, neighbor_unassigned = self._generate_neighbor_solution(
+                        current_solution, current_unassigned
+                    )
 
-                        else:
-                            # Soft acceptance
-                            current_obj = self.calculate_objective_value(
-                                current_time, current_constraint_score)
-                            neighbor_obj = self.calculate_objective_value(
-                                neighbor_time, neighbor_constraint_score)
-                            delta = neighbor_obj - current_obj
+                    neighbor_cost = self._evaluate_solution(neighbor_solution, neighbor_unassigned)
+                    cost_diff = neighbor_cost - current_cost
 
-                            if delta < 0 or random.random() < math.exp(-delta / temperature):
-                                current_solution = neighbor_solution
-                                current_constraint_score = neighbor_constraint_score
-                                improved = True
-                                last_improvement = iteration_count
+                    if (cost_diff < 0) or (random.random() < math.exp(-cost_diff / temperature)):
+                        current_solution = deepcopy(neighbor_solution)
+                        current_unassigned = set(neighbor_unassigned)
+                        current_cost = neighbor_cost
 
-                                if neighbor_time < self.best_time:
-                                    self.best_solution = deepcopy(current_solution)
-                                    self.best_time = neighbor_time
-                                    self.best_constraint_score = neighbor_constraint_score
+                        if current_cost < best_cost:
+                            best_solution = deepcopy(current_solution)
+                            best_unassigned = set(current_unassigned)
+                            best_cost = current_cost
+                            best_time = self.calculate_total_time(best_solution)
 
-                        iteration_count += 1
+                    progress_bar.update(1)
+                    iteration_count += 1
 
-                        current_time = time.time()
-                        if OPTIMIZATION_SETTINGS['VISUALIZE_PROCESS'] and (
-                                current_time - self.last_update) >= self.update_interval:
-                            self.update_visualization.emit(deepcopy(self.best_solution), self.unassigned_deliveries)
-                            self.last_update = current_time
+                    total_time = self.calculate_total_time(current_solution)
+                    driver_utilization = self._calculate_driver_utilization(current_solution)
+                    balance_score = self._calculate_balance_score(current_solution)
 
-                        progress.set_description(
-                            f"Time: {self.format_time(self.best_time)} | "
-                            f"Constraints: {self.best_constraint_score:.3f} | "
-                            f"Iter: {iteration_count}"
-                        )
+                    progress_bar.set_postfix({
+                        'temp': f"{temperature:.2f}",
+                        'cost': f"{current_cost:.2f}",
+                        'best': f"{best_cost:.2f}",
+                        'time': f"{total_time / 60:.2f}min",
+                        'best_time': f"{best_time / 60:.2f}min",
+                        'util': f"{driver_utilization:.2f}%",
+                        'balance': f"{balance_score:.2f}",
+                        'unassigned': len(current_unassigned),
+                        'cooling': f"{cooling_rate:.4f}"
+                    })
 
-                        # ---------------------------
-                        # STAGNATION / MELTDOWN LOGIC
-                        # ---------------------------
-                        if iteration_count - last_improvement > stagnation_limit:
-                            # Perform a meltdown: randomize current solution heavily
-                            # but keep the best_solution as our global best
-                            self.perform_random_meltdown(current_solution)
-                            current_time = self.calculate_total_time(current_solution)
-                            current_constraint_score = self.calculate_total_constraint_score(current_solution)
-                            last_improvement = iteration_count
+                    current_time = time.time()
+                    if (OPTIMIZATION_SETTINGS['VISUALIZE_PROCESS'] and
+                            (current_time - last_update_time > 1.0)):
+                        self.update_visualization.emit(best_solution, best_unassigned)
+                        last_update_time = current_time
 
-                    if improved:
-                        temperature *= cooling_rate
-                    else:
-                        temperature *= (cooling_rate * 0.5)
+                rel_improvement = (temp_start_cost - best_cost) / temp_start_cost if temp_start_cost > 0 else 0
 
-                    temp_difference = last_temp - temperature
-                    progress.update(temp_difference)
-                    last_temp = temperature
+                if rel_improvement > improvement_threshold:
+                    cooling_rate = min(max_cooling_rate, cooling_rate + 0.01)
+                    no_improvement_count = 0
+                else:
+                    no_improvement_count += 1
 
-                progress.update(last_temp - min_temperature)
+                if no_improvement_count >= no_improvement_threshold:
+                    cooling_rate = max(min_cooling_rate, cooling_rate - 0.02)
+                    no_improvement_count = 0
 
-            print(f"\nFinal Optimized Solution:")
-            print(f"Cumulative Travel Time: {self.format_time(self.best_time)} "
-                  f"({self.best_time / 3600:.2f} hours)")
-            time_improvement = (initial_time - self.best_time) / initial_time * 100 if initial_time > 0 else 0
-            print(f"\nTime Improvement: {time_improvement:.2f}%")
+                    if random.random() < 0.2:
+                        temperature = min(temperature * 1.2, OPTIMIZATION_SETTINGS['INITIAL_TEMPERATURE'] / 2)
 
-            self.update_visualization.emit(self.best_solution, self.unassigned_deliveries)
-            self.finished.emit(self.best_solution, self.unassigned_deliveries)
+                temperature *= cooling_rate
+
+                remaining_temp_levels = math.log(min_temperature / temperature) / math.log(cooling_rate)
+                remaining_iterations = int(remaining_temp_levels * iterations_per_temperature)
+                progress_bar.total = iteration_count + remaining_iterations
+
+            progress_bar.close()
+
+            self.update_visualization.emit(best_solution, best_unassigned)
+
+            final_time = self.calculate_total_time(best_solution)
+            time_improvement = (initial_time - final_time) / initial_time * 100 if initial_time > 0 else 0
+
+            print("\nFinal Solution Statistics:")
+            print(f"Total Travel Time: {self._format_time_hms(final_time)} ({final_time / 60:.2f} minutes)")
+            print(f"Solution Cost: {best_cost:.2f}")
+            print(f"Time Improvement: {time_improvement:.2f}%")
+            print(f"Final Cooling Rate: {cooling_rate:.4f}")
+            print("=" * 50)
+
+            self.finished.emit(best_solution, best_unassigned)
+            return best_solution, best_unassigned
 
         except Exception as e:
-            print(f"Error in optimization: {e}")
-            self.finished.emit(None, set())
+            import traceback
+            traceback.print_exc()
+            self.finished.emit(None, None)
+            return None, None
 
-    def calculate_objective_value(self, time_seconds: float, constraint_score: float) -> float:
+    def _generate_initial_solution(self):
         """
-        Modified to add a penalty for unassigned deliveries so that
-        solutions ignoring feasible deliveries are not favored.
+        Generate an initial balanced solution by distributing deliveries to drivers
+        using a round-robin approach with capacity constraints.
         """
-        time_in_hours = time_seconds / 3600
+        delivery_indices = list(range(len(self.snapped_delivery_points)))
+        delivery_indices.sort(
+            key=lambda idx: -(self.snapped_delivery_points[idx][2] / self.snapped_delivery_points[idx][3]))
 
-        unassigned_count = len(self.unassigned_deliveries)
+        solution = []
+        for driver in self.delivery_drivers:
+            assignment = DeliveryAssignment(
+                driver_id=driver.id,
+                delivery_indices=[],
+                total_weight=0.0,
+                total_volume=0.0
+            )
+            solution.append(assignment)
 
-        penalty_for_unassigned = 2 * unassigned_count
+        unassigned = set()
 
-        return time_in_hours * (2.0 - constraint_score) + penalty_for_unassigned
+        driver_idx = 0
+        for idx in delivery_indices:
+            _, _, weight, volume = self.snapped_delivery_points[idx]
 
-    def perform_random_meltdown(self, current_solution: List[DeliveryAssignment]) -> None:
+            assignment = solution[driver_idx]
+            driver = next((d for d in self.delivery_drivers if d.id == assignment.driver_id), None)
+
+            if (assignment.total_weight + weight <= driver.weight_capacity and
+                    assignment.total_volume + volume <= driver.volume_capacity):
+
+                assignment.delivery_indices.append(idx)
+                assignment.total_weight += weight
+                assignment.total_volume += volume
+            else:
+                found_driver = False
+
+                for j in range(1, len(solution)):
+                    alt_driver_idx = (driver_idx + j) % len(solution)
+                    alt_assignment = solution[alt_driver_idx]
+                    alt_driver = next((d for d in self.delivery_drivers if d.id == alt_assignment.driver_id), None)
+
+                    if (alt_assignment.total_weight + weight <= alt_driver.weight_capacity and
+                            alt_assignment.total_volume + volume <= alt_driver.volume_capacity):
+                        alt_assignment.delivery_indices.append(idx)
+                        alt_assignment.total_weight += weight
+                        alt_assignment.total_volume += volume
+                        found_driver = True
+                        break
+
+                if not found_driver:
+                    unassigned.add(idx)
+
+            driver_idx = (driver_idx + 1) % len(solution)
+
+        self._balance_initial_solution(solution)
+
+        for assignment in solution:
+            if len(assignment.delivery_indices) > 1:
+                self._optimize_route_order(assignment)
+
+        return solution, unassigned
+
+    def _balance_initial_solution(self, solution):
+        driver_utils = []
+        for i, assignment in enumerate(solution):
+            driver = next((d for d in self.delivery_drivers if d.id == assignment.driver_id), None)
+            weight_util = assignment.total_weight / driver.weight_capacity
+            volume_util = assignment.total_volume / driver.volume_capacity
+            avg_util = (weight_util + volume_util) / 2
+            driver_utils.append((i, avg_util))
+
+        driver_utils.sort(key=lambda x: -x[1])
+
+        for j in range(5):
+            for high_idx, _ in driver_utils[:len(driver_utils) // 2]:
+                high_assignment = solution[high_idx]
+
+                if not high_assignment.delivery_indices:
+                    continue
+
+                for low_idx, _ in reversed(driver_utils[len(driver_utils) // 2:]):
+                    low_assignment = solution[low_idx]
+
+                    for delivery_idx in list(high_assignment.delivery_indices):
+                        _, _, weight, volume = self.snapped_delivery_points[delivery_idx]
+
+                        low_driver = next((d for d in self.delivery_drivers if d.id == low_assignment.driver_id), None)
+
+                        if (low_assignment.total_weight + weight <= low_driver.weight_capacity and
+                                low_assignment.total_volume + volume <= low_driver.volume_capacity):
+                            high_assignment.delivery_indices.remove(delivery_idx)
+                            high_assignment.total_weight -= weight
+                            high_assignment.total_volume -= volume
+
+                            low_assignment.delivery_indices.append(delivery_idx)
+                            low_assignment.total_weight += weight
+                            low_assignment.total_volume += volume
+
+                            break
+
+    def _generate_neighbor_solution(self, current_solution, current_unassigned):
         """
-        A new helper method to handle "meltdown" when the solver stagnates.
-        This heavily randomizes the current solution (but doesn't touch best_solution).
+        Generate a neighboring solution by applying a random move.
         """
+        neighbor_solution = deepcopy(current_solution)
+        neighbor_unassigned = set(current_unassigned)
 
-        self.massive_redistribution(current_solution)
+        move_type = random.choices(
+            ["swap", "move", "reorder", "assign", "unassign", "balance"],
+            weights=[0.20, 0.20, 0.15, 0.15, 0.05, 0.25],
+            k=1
+        )[0]
 
-    def generate_initial_solution(self) -> List[DeliveryAssignment]:
+        if move_type == "swap" and len(neighbor_solution) >= 2:
+            # Swap deliveries between two drivers
+            self._apply_swap_move(neighbor_solution)
+
+        elif move_type == "move" and len(neighbor_solution) >= 2:
+            # Move a delivery from one driver to another
+            self._apply_move_move(neighbor_solution)
+
+        elif move_type == "reorder":
+            # Reorder deliveries for a driver
+            self._apply_reorder_move(neighbor_solution)
+
+        elif move_type == "assign" and neighbor_unassigned:
+            # Assign an unassigned delivery
+            self._apply_assign_move(neighbor_solution, neighbor_unassigned)
+
+        elif move_type == "unassign":
+            # Unassign a delivery
+            self._apply_unassign_move(neighbor_solution, neighbor_unassigned)
+
+        elif move_type == "balance" and len(neighbor_solution) >= 2:
+            # Balance workload between drivers
+            self._apply_balance_move(neighbor_solution)
+
+        self._recalculate_assignment_totals(neighbor_solution)
+
+        return neighbor_solution, neighbor_unassigned
+
+    def _apply_balance_move(self, solution):
         """
-        Generate a more randomized initial solution with controlled randomness
-
-        Key Principles:
-        1. Distribute deliveries across drivers randomly
-        2. Respect individual driver capacity constraints
-        3. Ensure most deliveries are assigned
+        Apply a move specifically designed to balance workload between drivers.
+        Moves deliveries from the most utilized driver to the least utilized.
         """
-        assignments = []
-        used_deliveries = set()
-
-        randomized_delivery_indices = list(range(len(self.deliveries)))
-        random.shuffle(randomized_delivery_indices)
-
-        driver_weights = [0] * len(self.drivers)
-        driver_volumes = [0] * len(self.drivers)
-
-        for delivery_idx in randomized_delivery_indices:
-            delivery = self.deliveries[delivery_idx]
-
-            eligible_driver_indices = []
-            for i, driver in enumerate(self.drivers):
-                new_weight = driver_weights[i] + delivery.weight
-                new_volume = driver_volumes[i] + delivery.volume
-                if new_weight <= driver.weight_capacity and new_volume <= driver.volume_capacity:
-                    eligible_driver_indices.append(i)
-
-            if not eligible_driver_indices:
-                self.unassigned_deliveries.add(delivery_idx)
+        driver_utils = []
+        for i, assignment in enumerate(solution):
+            if not assignment.delivery_indices:
+                driver_utils.append((i, 0.0))
                 continue
 
-            chosen_driver_index = random.choice(eligible_driver_indices)
+            driver = next((d for d in self.delivery_drivers if d.id == assignment.driver_id), None)
+            weight_util = assignment.total_weight / driver.weight_capacity
+            volume_util = assignment.total_volume / driver.volume_capacity
+            avg_util = (weight_util + volume_util) / 2
+            driver_utils.append((i, avg_util))
 
-            driver_weights[chosen_driver_index] += delivery.weight
-            driver_volumes[chosen_driver_index] += delivery.volume
+        driver_utils.sort(key=lambda x: -x[1])
 
-            chosen_driver = self.drivers[chosen_driver_index]
-            existing_assignment = next(
-                (a for a in assignments if a.driver_id == chosen_driver.id),
-                None
-            )
+        if len(driver_utils) < 2:
+            return
 
-            if existing_assignment:
-                existing_assignment.delivery_indices.append(delivery_idx)
-                existing_assignment.total_weight += delivery.weight
-                existing_assignment.total_volume += delivery.volume
-            else:
-                new_assignment = DeliveryAssignment(
-                    driver_id=chosen_driver.id,
-                    delivery_indices=[delivery_idx],
-                    total_weight=delivery.weight,
-                    total_volume=delivery.volume
-                )
-                assignments.append(new_assignment)
+        high_idx, high_util = driver_utils[0]
+        low_idx, low_util = driver_utils[-1]
 
-            used_deliveries.add(delivery_idx)
+        if high_util - low_util < 0.1:  # Less than 10% difference
+            return
 
-        self.unassigned_deliveries = set(range(len(self.deliveries))) - used_deliveries
+        high_assignment = solution[high_idx]
+        low_assignment = solution[low_idx]
 
-        return assignments
+        if not high_assignment.delivery_indices:
+            return
 
-    def _route_time_with_warehouse(self, assignment: DeliveryAssignment) -> float:
+        for delivery_idx in list(high_assignment.delivery_indices):
+            _, _, weight, volume = self.snapped_delivery_points[delivery_idx]
+
+            low_driver = next((d for d in self.delivery_drivers if d.id == low_assignment.driver_id), None)
+
+            if (low_assignment.total_weight + weight <= low_driver.weight_capacity and
+                    low_assignment.total_volume + volume <= low_driver.volume_capacity):
+                high_assignment.delivery_indices.remove(delivery_idx)
+                high_assignment.total_weight -= weight
+                high_assignment.total_volume -= volume
+
+                low_assignment.delivery_indices.append(delivery_idx)
+                low_assignment.total_weight += weight
+                low_assignment.total_volume += volume
+
+                self._optimize_route_order(high_assignment)
+                self._optimize_route_order(low_assignment)
+
+                break
+
+    def _apply_swap_move(self, solution):
         """
-        A private helper to quickly calculate time for a single route,
-        including travel from and back to the warehouse.
+        Swap deliveries between two random drivers.
         """
-        warehouse_coords = self.map_widget.get_warehouse_location()
+        valid_assignments = [a for a in solution if a.delivery_indices]
+        if len(valid_assignments) < 2:
+            return
+
+        idx1, idx2 = random.sample(range(len(valid_assignments)), 2)
+        assignment1 = valid_assignments[idx1]
+        assignment2 = valid_assignments[idx2]
+
+        if not assignment1.delivery_indices or not assignment2.delivery_indices:
+            return
+
+        delivery_idx1 = random.choice(assignment1.delivery_indices)
+        delivery_idx2 = random.choice(assignment2.delivery_indices)
+
+        _, _, weight1, volume1 = self.snapped_delivery_points[delivery_idx1]
+        _, _, weight2, volume2 = self.snapped_delivery_points[delivery_idx2]
+
+        driver1 = next((d for d in self.delivery_drivers if d.id == assignment1.driver_id), None)
+        driver2 = next((d for d in self.delivery_drivers if d.id == assignment2.driver_id), None)
+
+        if (assignment1.total_weight - weight1 + weight2 <= driver1.weight_capacity and
+                assignment1.total_volume - volume1 + volume2 <= driver1.volume_capacity and
+                assignment2.total_weight - weight2 + weight1 <= driver2.weight_capacity and
+                assignment2.total_volume - volume2 + volume1 <= driver2.volume_capacity):
+            assignment1.delivery_indices.remove(delivery_idx1)
+            assignment2.delivery_indices.remove(delivery_idx2)
+
+            assignment1.delivery_indices.append(delivery_idx2)
+            assignment2.delivery_indices.append(delivery_idx1)
+
+            self._optimize_route_order(assignment1)
+            self._optimize_route_order(assignment2)
+
+    def _apply_move_move(self, solution):
+        """
+        Move a delivery from one driver to another.
+        """
+        valid_assignments = [a for a in solution if a.delivery_indices]
+        if not valid_assignments:
+            return
+
+        from_idx = random.randrange(len(valid_assignments))
+        from_assignment = valid_assignments[from_idx]
+
+        if not from_assignment.delivery_indices:
+            return
+
+        delivery_idx = random.choice(from_assignment.delivery_indices)
+        _, _, weight, volume = self.snapped_delivery_points[delivery_idx]
+
+        to_drivers = [a for a in solution if a.driver_id != from_assignment.driver_id]
+        if not to_drivers:
+            return
+
+        to_assignment = random.choice(to_drivers)
+
+        to_driver = next((d for d in self.delivery_drivers if d.id == to_assignment.driver_id), None)
+
+        if (to_assignment.total_weight + weight <= to_driver.weight_capacity and
+                to_assignment.total_volume + volume <= to_driver.volume_capacity):
+            from_assignment.delivery_indices.remove(delivery_idx)
+            to_assignment.delivery_indices.append(delivery_idx)
+
+            self._optimize_route_order(from_assignment)
+            self._optimize_route_order(to_assignment)
+
+    def _apply_reorder_move(self, solution):
+        """
+        Reorder deliveries for a random driver using 2-opt.
+        """
+        valid_assignments = [a for a in solution if len(a.delivery_indices) >= 3]
+        if not valid_assignments:
+            return
+
+        assignment = random.choice(valid_assignments)
+
+        if len(assignment.delivery_indices) >= 3:
+            pos1 = random.randrange(len(assignment.delivery_indices) - 1)
+            pos2 = pos1 + 1
+
+            assignment.delivery_indices[pos1], assignment.delivery_indices[pos2] = \
+                assignment.delivery_indices[pos2], assignment.delivery_indices[pos1]
+
+    def _apply_assign_move(self, solution, unassigned):
+        """
+        Try to assign an unassigned delivery to a driver.
+        """
+        if not unassigned:
+            return
+
+        delivery_idx = random.choice(list(unassigned))
+        _, _, weight, volume = self.snapped_delivery_points[delivery_idx]
+
+        capable_assignments = []
+        for assignment in solution:
+            driver = next((d for d in self.delivery_drivers if d.id == assignment.driver_id), None)
+
+            if (assignment.total_weight + weight <= driver.weight_capacity and
+                    assignment.total_volume + volume <= driver.volume_capacity):
+                capable_assignments.append(assignment)
+
+        if capable_assignments:
+            capable_assignments.sort(key=lambda a: (
+                    a.total_weight / next(d for d in self.delivery_drivers if d.id == a.driver_id).weight_capacity +
+                    a.total_volume / next(d for d in self.delivery_drivers if d.id == a.driver_id).volume_capacity
+            ))
+
+            assignment = capable_assignments[0]
+
+            assignment.delivery_indices.append(delivery_idx)
+            unassigned.remove(delivery_idx)
+
+            self._optimize_route_order(assignment)
+
+    def _apply_unassign_move(self, solution, unassigned):
+        """
+        Unassign a delivery from a driver.
+        """
+        valid_assignments = [a for a in solution if a.delivery_indices]
+        if not valid_assignments:
+            return
+
+        assignment = random.choice(valid_assignments)
+
         if not assignment.delivery_indices:
-            return 0.0
-
-        points = [warehouse_coords] + [self.deliveries[i].coordinates
-                                       for i in assignment.delivery_indices] \
-                 + [warehouse_coords]
-        return self.calculate_route_time(points)
-
-    # ------------------------------------------------------------
-    #                   NEIGHBOR GENERATION
-    # ------------------------------------------------------------
-    def get_neighbor_solution(self, current: List[DeliveryAssignment],
-                              temperature: float,
-                              initial_temperature: float) -> List[DeliveryAssignment]:
-        """
-        Generate a neighbor solution using a random move strategy.
-        """
-
-        new_solution = deepcopy(current)
-
-        move_strategies = [
-            # High temperature => more disruptive moves
-            {
-                'moves': [
-                    'massive_redistribution',
-                    'driver_swap_all',
-                    'random_scramble',
-                    'cross_exchange'
-                ],
-                'weight': 0.5
-            },
-            # Medium temperature
-            {
-                'moves': [
-                    'swap',
-                    'transfer',
-                    'two_opt'
-                ],
-                'weight': 0.35
-            },
-            # Low temperature => small/fine moves
-            {
-                'moves': [
-                    'reverse',
-                    'transfer',
-                    'two_opt'
-                ],
-                'weight': 0.15
-            }
-        ]
-
-        # 3 temperature “tiers”: 0..(T/3), (T/3)..(2T/3), (2T/3)..T
-        tier = min(2, int(3 * temperature / initial_temperature))
-        current_move_set = move_strategies[tier]['moves']
-
-        chosen_move = random.choice(current_move_set)
-
-        if chosen_move == 'massive_redistribution':
-            self.massive_redistribution(new_solution)
-        elif chosen_move == 'driver_swap_all':
-            self.driver_swap_all(new_solution)
-        elif chosen_move == 'random_scramble':
-            self.random_scramble(new_solution)
-        elif chosen_move == 'swap':
-            self.swap_deliveries(new_solution)
-        elif chosen_move == 'transfer':
-            self.transfer_delivery(new_solution)
-        elif chosen_move == 'reverse':
-            self.reverse_route(new_solution)
-        elif chosen_move == 'cross_exchange':
-            self.cross_exchange_deliveries(new_solution)
-        elif chosen_move == 'two_opt':
-            self.two_opt_intra_route(new_solution)
-
-        return new_solution
-
-    # -------------------------
-    # Move Implementations
-    # -------------------------
-
-    def massive_redistribution(self, solution: List[DeliveryAssignment]):
-        """
-        Reassign *all* currently assigned deliveries among the drivers.
-        Only leave a delivery unassigned if no driver can fit it.
-        """
-        all_deliveries = []
-        for a in solution:
-            for d_idx in a.delivery_indices:
-                all_deliveries.append(d_idx)
-
-        if not all_deliveries:
             return
 
-        for a in solution:
-            a.delivery_indices.clear()
-            a.total_weight = 0
-            a.total_volume = 0
+        delivery_idx = random.choice(assignment.delivery_indices)
 
-        random.shuffle(all_deliveries)
+        assignment.delivery_indices.remove(delivery_idx)
+        unassigned.add(delivery_idx)
 
-        for d_idx in all_deliveries:
-            delivery = self.deliveries[d_idx]
-            feasible_assignments = []
-            for a in solution:
-                driver = next(d for d in self.drivers if d.id == a.driver_id)
-                if (a.total_weight + delivery.weight <= driver.weight_capacity and
-                        a.total_volume + delivery.volume <= driver.volume_capacity):
-                    feasible_assignments.append(a)
+    def _recalculate_assignment_totals(self, solution):
+        for assignment in solution:
+            total_weight = 0.0
+            total_volume = 0.0
 
-            if feasible_assignments:
-                chosen_a = random.choice(feasible_assignments)
-                chosen_a.delivery_indices.append(d_idx)
-                chosen_a.total_weight += delivery.weight
-                chosen_a.total_volume += delivery.volume
+            for idx in assignment.delivery_indices:
+                _, _, weight, volume = self.snapped_delivery_points[idx]
+                total_weight += weight
+                total_volume += volume
+
+            assignment.total_weight = total_weight
+            assignment.total_volume = total_volume
+
+    def _evaluate_solution(self, solution, unassigned=None):
+        total_time = self.calculate_total_time(solution)
+
+        unassigned_penalty = len(unassigned) * 3600 if unassigned else 0
+
+        empty_routes = sum(1 for assignment in solution if not assignment.delivery_indices)
+        empty_route_penalty = empty_routes * 3600
+
+        driver_utils = []
+        delivery_counts = []
+
+        for assignment in solution:
+            if not assignment.delivery_indices:
+                driver_utils.append(0.0)
+                delivery_counts.append(0)
+                continue
+
+            driver = next((d for d in self.delivery_drivers if d.id == assignment.driver_id), None)
+            weight_util = assignment.total_weight / driver.weight_capacity
+            volume_util = assignment.total_volume / driver.volume_capacity
+            avg_util = (weight_util + volume_util) / 2
+            driver_utils.append(avg_util)
+            delivery_counts.append(len(assignment.delivery_indices))
+
+        if driver_utils:
+            avg_util = sum(driver_utils) / len(driver_utils)
+            util_variance = sum((u - avg_util) ** 2 for u in driver_utils) / len(driver_utils)
+            util_std_dev = math.sqrt(util_variance)
+
+            if delivery_counts:
+                avg_count = sum(delivery_counts) / len(delivery_counts)
+                if avg_count > 0:
+                    count_variance = sum((c - avg_count) ** 2 for c in delivery_counts) / len(delivery_counts)
+                    count_std_dev = math.sqrt(count_variance)
+                    count_cv = count_std_dev / avg_count if avg_count > 0 else 0
+                else:
+                    count_cv = 0
             else:
-                self.unassigned_deliveries.add(d_idx)
+                count_cv = 0
 
-    def driver_swap_all(self, solution: List[DeliveryAssignment]):
-        """
-        Pick two different drivers and swap their entire sets of deliveries.
-        """
-
-        if len(solution) < 2:
-            return
-
-        a1, a2 = random.sample(solution, 2)
-
-        d1 = next(d for d in self.drivers if d.id == a1.driver_id)
-        d2 = next(d for d in self.drivers if d.id == a2.driver_id)
-
-        new_a1_weight = sum(self.deliveries[idx].weight for idx in a2.delivery_indices)
-        new_a1_volume = sum(self.deliveries[idx].volume for idx in a2.delivery_indices)
-
-        new_a2_weight = sum(self.deliveries[idx].weight for idx in a1.delivery_indices)
-        new_a2_volume = sum(self.deliveries[idx].volume for idx in a1.delivery_indices)
-
-        if (new_a1_weight <= d1.weight_capacity and
-                new_a1_volume <= d1.volume_capacity and
-                new_a2_weight <= d2.weight_capacity and
-                new_a2_volume <= d2.volume_capacity):
-            old_a1_indices = a1.delivery_indices
-            a1.delivery_indices = a2.delivery_indices
-            a2.delivery_indices = old_a1_indices
-
-            a1.total_weight = new_a1_weight
-            a1.total_volume = new_a1_volume
-            a2.total_weight = new_a2_weight
-            a2.total_volume = new_a2_volume
-
-    def random_scramble(self, solution: List[DeliveryAssignment]):
-        """
-        Pick one driver and shuffle the order of their deliveries.
-        This can change route time.
-        """
-        if not solution:
-            return
-
-        a = random.choice(solution)
-        if len(a.delivery_indices) > 1:
-            random.shuffle(a.delivery_indices)
-
-    def swap_deliveries(self, solution: List[DeliveryAssignment]):
-        """
-        Swap a single delivery between two drivers (if feasible).
-        """
-
-        if len(solution) < 2:
-            return
-
-        a1, a2 = random.sample(solution, 2)
-        if not a1.delivery_indices or not a2.delivery_indices:
-            return
-
-        idx1 = random.choice(a1.delivery_indices)
-        idx2 = random.choice(a2.delivery_indices)
-
-        delivery1 = self.deliveries[idx1]
-        delivery2 = self.deliveries[idx2]
-
-        d1 = next(d for d in self.drivers if d.id == a1.driver_id)
-        d2 = next(d for d in self.drivers if d.id == a2.driver_id)
-
-        new_a1_weight = a1.total_weight - delivery1.weight + delivery2.weight
-        new_a1_volume = a1.total_volume - delivery1.volume + delivery2.volume
-        new_a2_weight = a2.total_weight - delivery2.weight + delivery1.weight
-        new_a2_volume = a2.total_volume - delivery2.volume + delivery1.volume
-
-        if (new_a1_weight <= d1.weight_capacity and
-                new_a1_volume <= d1.volume_capacity and
-                new_a2_weight <= d2.weight_capacity and
-                new_a2_volume <= d2.volume_capacity):
-            a1.delivery_indices.remove(idx1)
-            a1.delivery_indices.append(idx2)
-            a2.delivery_indices.remove(idx2)
-            a2.delivery_indices.append(idx1)
-
-            a1.total_weight = new_a1_weight
-            a1.total_volume = new_a1_volume
-            a2.total_weight = new_a2_weight
-            a2.total_volume = new_a2_volume
-
-    def transfer_delivery(self, solution: List[DeliveryAssignment]):
-        """
-        Move exactly one delivery from one driver to another, if capacity allows.
-        """
-
-        if len(solution) < 2:
-            return
-
-        source_candidates = [a for a in solution if a.delivery_indices]
-        if not source_candidates:
-            return
-
-        source = random.choice(source_candidates)
-        delivery_idx = random.choice(source.delivery_indices)
-        delivery = self.deliveries[delivery_idx]
-
-        target_candidates = [a for a in solution if a.driver_id != source.driver_id]
-        if not target_candidates:
-            return
-
-        target = random.choice(target_candidates)
-        target_driver = next(d for d in self.drivers if d.id == target.driver_id)
-
-        new_target_weight = target.total_weight + delivery.weight
-        new_target_volume = target.total_volume + delivery.volume
-
-        if new_target_weight <= target_driver.weight_capacity and new_target_volume <= target_driver.volume_capacity:
-            source.delivery_indices.remove(delivery_idx)
-            source.total_weight -= delivery.weight
-            source.total_volume -= delivery.volume
-
-            target.delivery_indices.append(delivery_idx)
-            target.total_weight += delivery.weight
-            target.total_volume += delivery.volume
-
-    def reverse_route(self, solution: List[DeliveryAssignment]):
-        """
-        Reverse the order of deliveries for one driver, as a small local change.
-        """
-        if not solution:
-            return
-        a = random.choice(solution)
-        if len(a.delivery_indices) > 1:
-            a.delivery_indices.reverse()
-
-    def two_opt_intra_route(self, solution: List[DeliveryAssignment]) -> None:
-        """
-        Performs a single 2-Opt improvement on one driver's route, if possible.
-
-        We:
-          1) Pick a random driver that has at least 4 deliveries (since 2-Opt
-             re-links edges).
-          2) Pick two edges to 'flip'.
-        """
-        candidates = [a for a in solution if len(a.delivery_indices) >= 4]
-        if not candidates:
-            return
-
-        assignment = random.choice(candidates)
-        route = assignment.delivery_indices.copy()
-
-        if len(route) < 4:
-            return
-
-        i, k = sorted(random.sample(range(len(route)), 2))
-        if k - i < 2:
-            return
-
-        assignment.delivery_indices = route[:i] + route[i:k + 1][::-1] + route[k + 1:]
-
-    def cross_exchange_deliveries(self, solution: List[DeliveryAssignment]) -> None:
-        """
-        Attempt a 2-delivery cross-exchange between two different drivers/routes.
-        We'll pick two deliveries from route A and two from route B and swap them,
-        if capacity allows.
-        """
-        if len(solution) < 2:
-            return
-
-        a1, a2 = random.sample(solution, 2)
-        if len(a1.delivery_indices) < 2 or len(a2.delivery_indices) < 2:
-            return
-
-        d_indices_a1 = random.sample(a1.delivery_indices, 2)
-        d_indices_a2 = random.sample(a2.delivery_indices, 2)
-
-        for d_idx in d_indices_a1:
-            a1.delivery_indices.remove(d_idx)
-            a1.total_weight -= self.deliveries[d_idx].weight
-            a1.total_volume -= self.deliveries[d_idx].volume
-
-        for d_idx in d_indices_a2:
-            a2.delivery_indices.remove(d_idx)
-            a2.total_weight -= self.deliveries[d_idx].weight
-            a2.total_volume -= self.deliveries[d_idx].volume
-
-        driver1 = next(d for d in self.drivers if d.id == a1.driver_id)
-        driver2 = next(d for d in self.drivers if d.id == a2.driver_id)
-
-        new_a1_weight = a1.total_weight + sum(self.deliveries[idx].weight for idx in d_indices_a2)
-        new_a1_volume = a1.total_volume + sum(self.deliveries[idx].volume for idx in d_indices_a2)
-        new_a2_weight = a2.total_weight + sum(self.deliveries[idx].weight for idx in d_indices_a1)
-        new_a2_volume = a2.total_volume + sum(self.deliveries[idx].volume for idx in d_indices_a1)
-
-        if (new_a1_weight <= driver1.weight_capacity and
-                new_a1_volume <= driver1.volume_capacity and
-                new_a2_weight <= driver2.weight_capacity and
-                new_a2_volume <= driver2.volume_capacity):
-
-            a1.delivery_indices.extend(d_indices_a2)
-            a1.total_weight = new_a1_weight
-            a1.total_volume = new_a1_volume
-
-            a2.delivery_indices.extend(d_indices_a1)
-            a2.total_weight = new_a2_weight
-            a2.total_volume = new_a2_volume
+            balance_penalty = (util_std_dev / avg_util if avg_util > 0 else 0) * 7200
+            count_penalty = count_cv * 3600
         else:
-            for d_idx in d_indices_a1:
-                a1.delivery_indices.append(d_idx)
-                a1.total_weight += self.deliveries[d_idx].weight
-                a1.total_volume += self.deliveries[d_idx].volume
+            balance_penalty = 0
+            count_penalty = 0
 
-            for d_idx in d_indices_a2:
-                a2.delivery_indices.append(d_idx)
-                a2.total_weight += self.deliveries[d_idx].weight
-                a2.total_volume += self.deliveries[d_idx].volume
+        low_count_penalty = sum(3600 / (count + 1) for count in delivery_counts if count < 3)
+
+        total_cost = (
+                total_time +
+                unassigned_penalty +
+                empty_route_penalty +
+                balance_penalty +
+                count_penalty +
+                low_count_penalty
+        )
+
+        return total_cost
