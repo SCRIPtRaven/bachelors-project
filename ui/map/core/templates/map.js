@@ -13,6 +13,16 @@ let simulationDrivers = [];
 let simulationInterval = null;
 let simulationSpeed = 5.0;
 
+let simulationTime = 8 * 60 * 60; // Start at 8:00 AM in seconds
+let clockElement = null;
+let lastClockUpdateTime = Date.now();
+
+let totalExpectedTravelTime = 0;
+let initialExpectedCompletionTime = 0;
+
+let targetSimulationTime = 8 * 60 * 60;
+let timeSmoothing = true;
+
 function initMap(centerLat, centerLon, zoomLevel) {
     map = L.map('map').setView([centerLat, centerLon], zoomLevel);
 
@@ -30,6 +40,17 @@ function initMap(centerLat, centerLon, zoomLevel) {
         window.mapHandler = channel.objects.mapHandler;
         mapHandler.handleEvent("map_initialized");
     });
+}
+
+function updateClock() {
+    if (!clockElement || !clockElement._container) return;
+
+    const hours = Math.floor(simulationTime / 3600) % 24;
+    const minutes = Math.floor((simulationTime % 3600) / 60);
+    const seconds = Math.floor(simulationTime % 60);
+
+    const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    clockElement._container.innerHTML = `<strong>Simulation Time:</strong> ${timeString}`;
 }
 
 function showLoadingIndicator() {
@@ -150,10 +171,49 @@ function addDriverData(data) {
 
 function startSimulation(simulationData) {
     stopSimulation();
-
     clearLayer('drivers');
-
     simulationDrivers = [];
+
+    totalExpectedTravelTime = 0;
+    let maxDriverTravelTime = 0;
+
+    simulationData.forEach(route => {
+        let driverTravelTime = 0;
+        if (route.travelTimes && route.travelTimes.length > 0) {
+            driverTravelTime = route.travelTimes.reduce((sum, time) => sum + time, 0);
+            totalExpectedTravelTime += driverTravelTime;
+
+            if (driverTravelTime > maxDriverTravelTime) {
+                maxDriverTravelTime = driverTravelTime;
+            }
+        }
+    });
+
+    simulationTime = 8 * 60 * 60;
+    initialExpectedCompletionTime = simulationTime + maxDriverTravelTime;
+
+    console.log("Expected total travel time across all drivers (seconds):", totalExpectedTravelTime);
+    console.log("Expected completion time:", formatTimeHMS(initialExpectedCompletionTime));
+
+    if (!clockElement) {
+        clockElement = L.control({position: 'topright'});
+
+        clockElement.onAdd = function () {
+            const div = L.DomUtil.create('div', 'info clock-container');
+            div.innerHTML = '<strong>Simulation Time:</strong> 08:00:00';
+            div.style.padding = '10px';
+            div.style.background = 'rgba(255, 255, 255, 0.8)';
+            div.style.borderRadius = '5px';
+            div.style.boxShadow = '0 0 5px rgba(0,0,0,0.2)';
+            div.style.fontSize = '14px';
+            return div;
+        };
+    }
+
+    clockElement.addTo(map);
+    updateClock();
+
+    lastClockUpdateTime = Date.now();
 
     simulationData.forEach(route => {
         if (route.path && route.path.length > 0) {
@@ -167,6 +227,11 @@ function startSimulation(simulationData) {
                 .bindPopup(`Driver ${route.driverId}`)
                 .addTo(layers.drivers);
 
+            let expectedTravelTime = 0;
+            if (route.travelTimes && route.travelTimes.length > 0) {
+                expectedTravelTime = route.travelTimes.reduce((sum, time) => sum + time, 0);
+            }
+
             simulationDrivers.push({
                 id: route.driverId,
                 marker: marker,
@@ -177,7 +242,10 @@ function startSimulation(simulationData) {
                 lastTime: Date.now(),
                 visited: [],
                 color: route.style.color,
-                elapsedOnSegment: 0
+                elapsedOnSegment: 0,
+                completedDistance: 0,
+                expectedTravelTime: expectedTravelTime,
+                isActive: true
             });
         }
     });
@@ -186,6 +254,14 @@ function startSimulation(simulationData) {
         simulationRunning = true;
         simulationInterval = setInterval(updateSimulation, 50);
     }
+}
+
+function formatTimeHMS(timeInSeconds) {
+    const hours = Math.floor(timeInSeconds / 3600) % 24;
+    const minutes = Math.floor((timeInSeconds % 3600) / 60);
+    const seconds = Math.floor(timeInSeconds % 60);
+
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
 function stopSimulation() {
@@ -206,17 +282,26 @@ function updateSimulation() {
 
         const now = Date.now();
         let allComplete = true;
+        let totalProgressFraction = 0;
+        let activeDrivers = 0;
+
+        const realElapsedSeconds = (now - lastClockUpdateTime) / 1000;
+        lastClockUpdateTime = now;
 
         simulationDrivers.forEach(driver => {
             try {
-                if (driver.currentIndex >= driver.path.length - 1) return;
+                if (!driver.isActive) return;
+
+                if (driver.currentIndex >= driver.path.length - 1) {
+                    driver.isActive = false;
+                    console.log(`Driver ${driver.id} completed route`);
+                    return;
+                }
 
                 allComplete = false;
-                const elapsed = (now - driver.lastTime) / 1000;
-                driver.lastTime = now;
+                activeDrivers++;
 
-                const cappedElapsed = Math.min(elapsed, 0.5);
-
+                const cappedElapsed = Math.min(realElapsedSeconds, 0.5);
                 driver.elapsedOnSegment += cappedElapsed * simulationSpeed;
 
                 let segmentTime = 10;
@@ -227,6 +312,7 @@ function updateSimulation() {
                 const progress = driver.elapsedOnSegment / segmentTime;
 
                 if (progress >= 1.0) {
+                    driver.completedDistance += segmentTime;
                     driver.currentIndex++;
                     driver.elapsedOnSegment = 0;
 
@@ -241,7 +327,16 @@ function updateSimulation() {
                     driver.marker.setLatLng([newLat, newLng]);
                 }
 
-                if (driver.deliveryIndices && driver.deliveryIndices.includes(driver.currentIndex) &&
+                const totalExpectedTime = driver.expectedTravelTime || 1;
+                const currentCompletedTime = driver.completedDistance +
+                    (driver.currentIndex < driver.path.length - 1 ?
+                        (driver.travelTimes[driver.currentIndex] * progress) : 0);
+                const driverProgressFraction = Math.min(currentCompletedTime / totalExpectedTime, 1.0);
+
+                totalProgressFraction += driverProgressFraction;
+
+                if (driver.deliveryIndices &&
+                    driver.deliveryIndices.includes(driver.currentIndex) &&
                     !driver.visited.includes(driver.currentIndex)) {
                     triggerDeliveryAnimation(driver, driver.currentIndex);
                 }
@@ -250,7 +345,28 @@ function updateSimulation() {
             }
         });
 
+        if (activeDrivers > 0) {
+            const avgProgressFraction = totalProgressFraction / activeDrivers;
+
+            targetSimulationTime = 8 * 60 * 60 +
+                ((initialExpectedCompletionTime - (8 * 60 * 60)) * avgProgressFraction);
+
+            if (timeSmoothing) {
+                simulationTime = simulationTime + (targetSimulationTime - simulationTime) * 0.05;
+            } else {
+                simulationTime = targetSimulationTime;
+            }
+
+            updateClock();
+        }
+
         if (allComplete) {
+            simulationTime = initialExpectedCompletionTime;
+            updateClock();
+
+            console.log("All drivers completed their routes");
+            console.log("Final time:", formatTimeHMS(simulationTime));
+
             stopSimulation();
         }
     } catch (error) {
@@ -261,6 +377,27 @@ function updateSimulation() {
             console.error("Error stopping simulation:", e);
         }
     }
+}
+
+function calculateDriverProgress(driver) {
+    if (!driver.isActive) return 1.0;
+
+    const totalExpectedTime = driver.expectedTravelTime || 1;
+
+    let currentCompletedTime = driver.completedDistance;
+
+    if (driver.currentIndex < driver.path.length - 1 && driver.travelTimes.length > driver.currentIndex) {
+        const segmentTime = driver.travelTimes[driver.currentIndex];
+        const progress = driver.elapsedOnSegment / segmentTime;
+        currentCompletedTime += segmentTime * progress;
+    }
+
+    return Math.min(currentCompletedTime / totalExpectedTime, 1.0);
+}
+
+function setTimeSmoothing(enabled) {
+    timeSmoothing = enabled;
+    console.log("Time smoothing:", enabled);
 }
 
 function triggerDeliveryAnimation(driver, pointIndex) {
