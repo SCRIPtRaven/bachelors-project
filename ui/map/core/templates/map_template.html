@@ -60,6 +60,16 @@
                 animation: spin 1s linear infinite;
                 margin: 0 auto 10px auto;
             }
+
+            .clock-container {
+                z-index: 1000;
+                font-family: 'Arial', sans-serif;
+                transition: background-color 0.3s;
+            }
+
+            .clock-container:hover {
+                background-color: rgba(255, 255, 255, 0.95) !important;
+            }
     
             @keyframes spin {
                 0% { transform: rotate(0deg); }

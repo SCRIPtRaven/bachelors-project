@@ -62,8 +62,8 @@ class DriverController(QtCore.QObject):
     def _create_scroll_area(self):
         scroll_area = QtWidgets.QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setMinimumHeight(150)
-        scroll_area.setMaximumHeight(200)
+        scroll_area.setMinimumHeight(200)
+        scroll_area.setMaximumHeight(300)
         scroll_area.setStyleSheet("""
             QScrollArea {
                 border: 1px solid #ddd;
@@ -80,6 +80,43 @@ class DriverController(QtCore.QObject):
         )
         label.doubleClicked.connect(self.on_driver_double_clicked)
         return label
+
+    def update_driver_stats(self, solution_data):
+        """
+        Update driver labels with detailed statistics after optimization is complete.
+
+        Args:
+            solution_data: A dictionary containing driver statistics from the optimization
+        """
+        if not solution_data or not self.driver_labels:
+            return
+
+        for driver_id, stats in solution_data.items():
+            if driver_id in self.driver_labels:
+                driver = next((d for d in self.delivery_drivers if d.id == driver_id), None)
+                if not driver:
+                    continue
+
+                hours = int(stats['travel_time'] // 3600)
+                minutes = int((stats['travel_time'] % 3600) // 60)
+                seconds = int(stats['travel_time'] % 60)
+                time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+                weight_pct = (stats['weight'] / driver.weight_capacity) * 100
+                volume_pct = (stats['volume'] / driver.volume_capacity) * 100
+
+                label_text = (
+                    f"Driver {driver_id}: {stats['deliveries']} deliveries\n"
+                    f"Time: {time_str}\n"
+                    f"Distance: {stats['distance']:.2f} km\n"
+                    f"Weight: {stats['weight']:.1f}/{driver.weight_capacity:.1f} kg ({weight_pct:.1f}%)\n"
+                    f"Volume: {stats['volume']:.3f}/{driver.volume_capacity:.3f} m³ ({volume_pct:.1f}%)"
+                )
+
+                self.driver_labels[driver_id].setText(label_text)
+                self.driver_labels[driver_id].setWordWrap(True)
+
+                self.driver_labels[driver_id].setMinimumHeight(80)
 
     def on_driver_double_clicked(self, driver_id):
         """

@@ -511,6 +511,10 @@ class VisualizationController(QtCore.QObject):
 
                 self.update_visualization(self.sa_solution, unassigned)
                 self._update_statistics(self.sa_solution)
+
+                if hasattr(self.base_map, 'driver_controller'):
+                    driver_stats = self._calculate_driver_statistics(self.sa_solution)
+                    self.base_map.driver_controller.update_driver_stats(driver_stats)
         else:
             if hasattr(self, 'greedy_solution') and self.greedy_solution is not None:
                 self.current_view = solution_type
@@ -521,6 +525,10 @@ class VisualizationController(QtCore.QObject):
 
                 self.update_visualization(self.greedy_solution, unassigned)
                 self._update_statistics(self.greedy_solution)
+
+                if hasattr(self.base_map, 'driver_controller'):
+                    driver_stats = self._calculate_driver_statistics(self.greedy_solution)
+                    self.base_map.driver_controller.update_driver_stats(driver_stats)
 
     def on_optimization_finished(self, final_solution, unassigned):
         """Handle optimization completion"""
@@ -552,6 +560,11 @@ class VisualizationController(QtCore.QObject):
             if main_window and hasattr(main_window, 'btn_simulate'):
                 main_window.btn_simulate.setEnabled(True)
 
+            driver_stats = self._calculate_driver_statistics(final_solution)
+
+            if hasattr(self.base_map, 'driver_controller'):
+                self.base_map.driver_controller.update_driver_stats(driver_stats)
+
             self._update_statistics(final_solution)
             self._show_optimization_summary(final_solution, unassigned)
 
@@ -566,6 +579,96 @@ class VisualizationController(QtCore.QObject):
                 "Error",
                 f"An error occurred while finalizing the optimization:\n{str(e)}"
             )
+
+    def _calculate_driver_statistics(self, solution):
+        """
+        Calculate detailed statistics for each driver based on the solution.
+
+        Returns:
+            dict: Dictionary mapping driver_id to their statistics
+        """
+        driver_stats = {}
+        warehouse_location = self.base_map.get_warehouse_location()
+
+        for assignment in solution:
+            driver_id = assignment.driver_id
+
+            if not assignment.delivery_indices:
+                continue
+
+            route_data = self._calculate_route_points(assignment, warehouse_location, set())
+
+            if isinstance(route_data, tuple) and len(route_data) >= 2:
+                route_points, travel_times = route_data[0], route_data[1]
+            else:
+                continue
+
+            travel_time = sum(travel_times) if travel_times else 0
+
+            try:
+                distance = 0
+                for i in range(len(assignment.delivery_indices)):
+                    start_idx = assignment.delivery_indices[i]
+
+                    if i == 0:
+                        start_point = warehouse_location
+                        end_point = self.snapped_delivery_points[start_idx][0:2]
+
+                        try:
+                            start_node = ox.nearest_nodes(self.G, X=start_point[1], Y=start_point[0])
+                            end_node = ox.nearest_nodes(self.G, X=end_point[1], Y=end_point[0])
+
+                            segment_distance = nx.shortest_path_length(
+                                self.G, start_node, end_node, weight='length'
+                            ) / 1000
+                            distance += segment_distance
+                        except Exception as e:
+                            print(f"Error calculating segment distance: {e}")
+
+                    if i == len(assignment.delivery_indices) - 1:
+                        start_point = self.snapped_delivery_points[start_idx][0:2]
+                        end_point = warehouse_location
+
+                        try:
+                            start_node = ox.nearest_nodes(self.G, X=start_point[1], Y=start_point[0])
+                            end_node = ox.nearest_nodes(self.G, X=end_point[1], Y=end_point[0])
+
+                            segment_distance = nx.shortest_path_length(
+                                self.G, start_node, end_node, weight='length'
+                            ) / 1000
+                            distance += segment_distance
+                        except Exception as e:
+                            print(f"Error calculating segment distance: {e}")
+
+                    if i < len(assignment.delivery_indices) - 1:
+                        end_idx = assignment.delivery_indices[i + 1]
+                        start_point = self.snapped_delivery_points[start_idx][0:2]
+                        end_point = self.snapped_delivery_points[end_idx][0:2]
+
+                        try:
+                            start_node = ox.nearest_nodes(self.G, X=start_point[1], Y=start_point[0])
+                            end_node = ox.nearest_nodes(self.G, X=end_point[1], Y=end_point[0])
+
+                            segment_distance = nx.shortest_path_length(
+                                self.G, start_node, end_node, weight='length'
+                            ) / 1000
+                            distance += segment_distance
+                        except Exception as e:
+                            print(f"Error calculating segment distance: {e}")
+
+            except Exception as e:
+                print(f"Error calculating distance for driver {driver_id}: {e}")
+                distance = 0
+
+            driver_stats[driver_id] = {
+                'travel_time': travel_time,
+                'distance': distance,
+                'deliveries': len(assignment.delivery_indices),
+                'weight': assignment.total_weight,
+                'volume': assignment.total_volume
+            }
+
+        return driver_stats
 
     def _update_statistics(self, final_solution):
         """Update the statistics labels with solution metrics"""
