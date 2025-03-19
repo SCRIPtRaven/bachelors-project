@@ -3,6 +3,7 @@ import osmnx as ox
 
 
 def find_accessible_node(G, lat, lon, center_node=None, search_radius=1000):
+    # Make this function more robust for threaded use
     if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
         raise ValueError(f"Invalid coordinates: lat={lat}, lon={lon}")
 
@@ -11,7 +12,19 @@ def find_accessible_node(G, lat, lon, center_node=None, search_radius=1000):
         try:
             node_id = ox.nearest_nodes(G, X=lon, Y=lat)
             if node_id in G.nodes:
-                if center_node is None or nx.has_path(G, node_id, center_node):
+                # Only perform path checking if absolutely necessary
+                if center_node is None:
+                    node = G.nodes[node_id]
+                    return node_id, (node['y'], node['x'])
+
+                # Use a fallback for path checking
+                try:
+                    if nx.has_path(G, node_id, center_node):
+                        node = G.nodes[node_id]
+                        return node_id, (node['y'], node['x'])
+                except Exception as path_error:
+                    # If path checking fails, still return the node
+                    print(f"Path checking error: {path_error}")
                     node = G.nodes[node_id]
                     return node_id, (node['y'], node['x'])
         except Exception as e:

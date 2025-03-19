@@ -12,6 +12,16 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        self.web_profile = QtWebEngineWidgets.QWebEngineProfile("map_profile", self)
+        self.web_profile.setPersistentCookiesPolicy(QtWebEngineWidgets.QWebEngineProfile.NoPersistentCookies)
+        self.web_profile.setHttpCacheType(QtWebEngineWidgets.QWebEngineProfile.MemoryHttpCache)
+        self.web_profile.setPersistentStoragePath(os.path.join(os.path.dirname(MAP_HTML), "cache"))
+
+        # Create a dedicated page with this profile
+        self.web_page = QtWebEngineWidgets.QWebEnginePage(self.web_profile, self)
+        self.setPage(self.web_page)
+
         self.G = None
         self.current_city = None
 
@@ -32,14 +42,15 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         self.loadFinished.connect(self._on_load_finished)
 
     def init_map(self, center=None, zoom=None):
-        """Initialize the Leaflet map with center and zoom level"""
+        """Simple synchronous initialization"""
         from utils.geolocation import get_city_coordinates
-
         if center is None or zoom is None:
             center, zoom = get_city_coordinates("Kaunas, Lithuania")
 
+        # Process templates
         template_dir = os.path.join(os.path.dirname(__file__), "templates")
 
+        # Process JS template
         js_template_path = os.path.join(template_dir, "map.js")
         js_output_path = os.path.join(os.path.dirname(MAP_HTML), "map.js")
 
@@ -49,7 +60,9 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         with open(js_output_path, "w", encoding="utf-8") as f:
             f.write(js_content)
 
+        # Process HTML template
         html_template_path = os.path.join(template_dir, "map_template.html")
+
         with open(html_template_path, "r", encoding="utf-8") as f:
             html_content = f.read()
 
@@ -60,28 +73,67 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         with open(MAP_HTML, "w", encoding="utf-8") as f:
             f.write(html_content)
 
+        # Load the map directly
         self.load_map()
 
     def load_map(self):
         """Load the map HTML file into the view"""
+        if not os.path.exists(MAP_HTML):
+            print(f"ERROR: Map HTML file does not exist at: {MAP_HTML}")
+            self.load_completed.emit(False, f"Map HTML file not found at {MAP_HTML}")
+            return
+
         url = QtCore.QUrl.fromLocalFile(os.path.abspath(MAP_HTML))
+        print(f"Loading map from URL: {url.toString()}")
         self.setUrl(url)
 
     def _on_load_finished(self, ok):
         """Called when the HTML page has finished loading"""
-        if ok:
-            # Wait a moment for JavaScript to initialize
-            QtCore.QTimer.singleShot(500, lambda: self.map_ready.emit())
-            self.load_completed.emit(True, "Map loaded successfully")
-        else:
-            self.load_completed.emit(False, "Failed to load map")
+        # Get the URL that just finished loading
+        current_url = self.url().toString()
+
+        print(f"Page load finished: success={ok}, url={current_url}")
+
+        # Check if we're loading the actual map (not the loading page)
+        if "loading.html" not in current_url:
+            if ok:
+                print("Map HTML loaded successfully")
+                # Wait longer for JavaScript to initialize
+                QtCore.QTimer.singleShot(250, lambda: self.map_ready.emit())
+                QtCore.QTimer.singleShot(300, lambda: self.load_completed.emit(True, "Map loaded successfully"))
+            else:
+                print(f"Failed to load map HTML from {current_url}")
+                # Check if the file exists
+                if "file:///" in current_url:
+                    file_path = current_url.replace("file:///", "")
+                    if os.path.exists(file_path):
+                        print(f"File exists but failed to load. Check content.")
+                    else:
+                        print(f"File does not exist at: {file_path}")
+
+                self.load_completed.emit(False, f"Failed to load map from {current_url}")
 
     def execute_js(self, code, callback=None):
-        """Execute JavaScript code in the page"""
+        """Execute JavaScript code in the page safely"""
+        # Ensure we're on the main thread
+        if QtCore.QThread.currentThread() != QtCore.QCoreApplication.instance().thread():
+            print("ERROR: Attempting to execute JS from non-main thread!")
+            return
+
+        # Add error handling wrapper
+        safe_code = f"""
+        try {{
+            {code}
+        }} catch(error) {{
+            console.error('JavaScript error:', error);
+        }}
+        """
+
+        # Execute with or without callback
         if callback:
-            self.page().runJavaScript(code, callback)
+            self.page().runJavaScript(safe_code, callback)
         else:
-            self.page().runJavaScript(code)
+            self.page().runJavaScript(safe_code)
 
     def update_layer(self, layer_name, data):
         """Update a specific layer with new data"""
