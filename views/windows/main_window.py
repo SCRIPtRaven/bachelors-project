@@ -1,8 +1,8 @@
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QMessageBox, QWidget, QFrame
 
-from ui.widgets.map_widget import MapWidget
-from ui.windows.city_selector import CitySelector
+from views.components.map.map_widget import MapWidget
+from views.dialogs.city_selector import CitySelector
 
 
 class MainWindow(QWidget):
@@ -272,28 +272,17 @@ class MainWindow(QWidget):
 
     def generate_deliveries(self):
         """Generate the requested number of delivery points"""
-        num_deliveries = self.delivery_input.text()
-        if not num_deliveries.isdigit():
-            QMessageBox.warning(self, "Invalid Input", "Please enter a valid number of delivery points.")
-            return
-
-        num_deliveries = int(num_deliveries)
-        self.map_widget.generate_delivery_points(num_deliveries)
+        success, message = self.map_widget.delivery_viewmodel.validate_and_generate_points(self.delivery_input.text())
+        if not success:
+            QMessageBox.warning(self, "Invalid Input", message)
 
     def generate_drivers(self):
         """Generate the requested number of delivery drivers"""
-        num_drivers = self.driver_input.text()
-        if not num_drivers.isdigit():
-            QMessageBox.warning(self, "Invalid Input", "Please enter a valid number of drivers.")
-            return
-
-        num_drivers = int(num_drivers)
-        self.map_widget.generate_delivery_drivers(num_drivers)
+        success, message = self.map_widget.driver_viewmodel.validate_and_generate_drivers(self.driver_input.text())
+        if not success:
+            QMessageBox.warning(self, "Invalid Input", message)
 
     def on_solution_switch_clicked(self):
-        if self.solution_switch.isChecked():
-            self.solution_switch.setText("Greedy")
-            self.map_widget.visualization_controller.switch_solution_view("Greedy")
-        else:
-            self.solution_switch.setText("Simulated Annealing")
-            self.map_widget.visualization_controller.switch_solution_view("Simulated Annealing")
+        is_greedy = self.solution_switch.isChecked()
+        solution_name, button_text = self.map_widget.optimization_viewmodel.toggle_solution_view(is_greedy)
+        self.solution_switch.setText(button_text)

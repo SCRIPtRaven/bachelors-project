@@ -2,9 +2,9 @@ from PyQt5 import QtCore
 
 
 class VisualizationQueue:
-    def __init__(self, visualization_controller):
+    def __init__(self, optimization_viewmodel):
         self.queue = []
-        self.controller = visualization_controller
+        self.controller = optimization_viewmodel
 
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.process_queue)
