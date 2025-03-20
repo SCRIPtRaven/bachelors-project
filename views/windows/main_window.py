@@ -1,8 +1,8 @@
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QMessageBox, QWidget, QFrame
 
-from ui.widgets.map_widget import MapWidget
-from ui.windows.city_selector import CitySelector
+from views.widgets.map_widget import MapWidget
+from views.windows.city_selector import CitySelector
 
 
 class MainWindow(QWidget):

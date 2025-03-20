@@ -1,12 +1,12 @@
 import osmnx as ox
 from PyQt5 import QtCore, QtWidgets
 
-from ui.map.controllers.delivery_controller import DeliveryController
-from ui.map.controllers.driver_controller import DriverController
-from ui.map.controllers.visualization_controller import VisualizationController
-from ui.map.core.leaflet_map_widget import LeafletMapWidget
-from ui.map.utils.visualization_queue import VisualizationQueue
-from ui.workers.graph_load_worker import GraphLoadWorker
+from views.map.controllers.delivery_controller import DeliveryController
+from views.map.controllers.driver_controller import DriverController
+from views.map.controllers.visualization_controller import VisualizationController
+from views.map.core.leaflet_map_widget import LeafletMapWidget
+from views.map.utils.visualization_queue import VisualizationQueue
+from views.workers.graph_load_worker import GraphLoadWorker
 from utils.geolocation import get_city_coordinates
 from utils.route_color_manager import RouteColorManager
 

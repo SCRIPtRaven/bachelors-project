@@ -1,7 +1,7 @@
 from PyQt5 import QtCore, QtWidgets
 
 from services.geolocation_service import GeolocationService
-from ui.map.utils.clickable_label import ClickableLabel
+from views.map.utils.clickable_label import ClickableLabel
 
 
 class DriverController(QtCore.QObject):

@@ -1,7 +1,7 @@
 from PyQt5 import QtWidgets, QtCore
 
 from services.geolocation_service import GeolocationService
-from ui.map.utils.map_utils import find_accessible_node
+from views.map.utils.map_utils import find_accessible_node
 
 
 class DeliveryController(QtCore.QObject):
