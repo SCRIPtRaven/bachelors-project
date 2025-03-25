@@ -6,9 +6,9 @@ from copy import deepcopy
 from PyQt5 import QtCore
 from tqdm import tqdm
 
-from config import OPTIMIZATION_SETTINGS
-from logic.base_delivery_optimizer import DeliveryOptimizer
-from models import DeliveryAssignment
+from config.optimization_settings import OPTIMIZATION_SETTINGS
+from models.entities.delivery import DeliveryAssignment
+from models.services.optimization.base_optimizer import DeliveryOptimizer
 
 
 class SimulatedAnnealingOptimizer(DeliveryOptimizer):
@@ -18,8 +18,8 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
     """
     update_visualization = QtCore.pyqtSignal(object, object)
 
-    def __init__(self, delivery_drivers, snapped_delivery_points, G, map_widget):
-        super().__init__(delivery_drivers, snapped_delivery_points, G, map_widget)
+    def __init__(self, delivery_drivers, snapped_delivery_points, G, warehouse_coords):
+        super().__init__(delivery_drivers, snapped_delivery_points, G, warehouse_coords)
 
     def optimize(self):
         """

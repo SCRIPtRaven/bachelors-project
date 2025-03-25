@@ -4,6 +4,7 @@ import os
 from PyQt5 import QtCore, QtWebEngineWidgets, QtWebChannel
 
 from config.paths import MAP_HTML
+from config.paths import RESOURCES_DIR
 
 
 class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
@@ -33,12 +34,12 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
 
     def init_map(self, center=None, zoom=None):
         """Initialize the Leaflet map with center and zoom level"""
-        from utils.geolocation import get_city_coordinates
+        from utils.geo_utils import get_city_coordinates
 
         if center is None or zoom is None:
             center, zoom = get_city_coordinates("Kaunas, Lithuania")
 
-        template_dir = os.path.join(os.path.dirname(__file__), "templates")
+        template_dir = RESOURCES_DIR / 'templates'
 
         js_template_path = os.path.join(template_dir, "map.js")
         js_output_path = os.path.join(os.path.dirname(MAP_HTML), "map.js")

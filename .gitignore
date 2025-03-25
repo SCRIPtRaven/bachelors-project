@@ -171,6 +171,23 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-resources/*
-!resources/qwebchannel.js
-!resources/kaunas_travel_times.csv
+!resources/
+!resources/*/
+!resources/*/*/
+!resources/*/*/*/
+
+!resources/templates/
+!resources/templates/*.html
+!resources/templates/*.js
+
+!resources/js/
+!resources/js/qwebchannel.js
+
+!resources/data/
+!resources/data/travel_times/
+!resources/data/travel_times/kaunas_travel_times.csv
+
+resources/generated/
+resources/generated/*
+
+resources/data/graphs/*.graphml

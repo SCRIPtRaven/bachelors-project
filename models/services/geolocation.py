@@ -2,7 +2,8 @@ import math
 import random
 
 from config.delivery_settings import PACKAGE_CONSTRAINTS, DRIVER_CONSTRAINTS, INNER_POINTS_RATIO
-from models import Driver, Delivery
+from models.entities.delivery import Delivery
+from models.entities.driver import Driver
 
 
 class GeolocationService:

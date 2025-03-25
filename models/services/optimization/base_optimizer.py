@@ -12,13 +12,12 @@ class DeliveryOptimizer(QtCore.QObject):
     """
     finished = QtCore.pyqtSignal(object, object)
 
-    def __init__(self, delivery_drivers, snapped_delivery_points, G, map_widget):
+    def __init__(self, delivery_drivers, snapped_delivery_points, G, warehouse_coords):
         super().__init__()
         self.delivery_drivers = delivery_drivers
         self.snapped_delivery_points = snapped_delivery_points
         self.G = G
-        self.map_widget = map_widget
-        self.warehouse_location = map_widget.get_warehouse_location()
+        self.warehouse_location = warehouse_coords
         self.nearest_nodes_cache = {}
         self.route_cache = {}
 

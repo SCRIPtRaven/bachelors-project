@@ -3,8 +3,8 @@ import os
 from PyQt5 import QtCore
 
 from config.paths import get_graph_file_path, get_travel_times_path
-from data import graph_manager
-from data.graph_manager import download_and_save_graph, get_largest_connected_component
+from models.services import graph
+from models.services.graph import download_and_save_graph, get_largest_connected_component
 
 
 class GraphLoadWorker(QtCore.QThread):
@@ -24,18 +24,18 @@ class GraphLoadWorker(QtCore.QThread):
             travel_times_path = get_travel_times_path(self.city_name)
 
             try:
-                G = graph_manager.load_graph(filename=graph_path)
+                G = graph.load_graph(filename=graph_path)
                 G = get_largest_connected_component(G)
 
                 if os.path.isfile(travel_times_path):
-                    graph_manager.update_travel_times_from_csv(G, travel_times_path)
+                    graph.update_travel_times_from_csv(G, travel_times_path)
 
                 self.finished.emit(True, "Graph loaded successfully", G, self.city_name)
 
             except FileNotFoundError:
                 success = download_and_save_graph(self.city_name)
                 if success:
-                    G = graph_manager.load_graph(filename=graph_path)
+                    G = graph.load_graph(filename=graph_path)
                     G = get_largest_connected_component(G)
                     self.finished.emit(True, "Graph downloaded and loaded successfully", G, self.city_name)
                 else:

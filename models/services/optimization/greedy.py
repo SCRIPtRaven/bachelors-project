@@ -2,8 +2,8 @@ import time
 
 from tqdm import tqdm
 
-from logic.base_delivery_optimizer import DeliveryOptimizer
-from models import DeliveryAssignment
+from models.entities.delivery import DeliveryAssignment
+from models.services.optimization.base_optimizer import DeliveryOptimizer
 
 
 class GreedyOptimizer(DeliveryOptimizer):
