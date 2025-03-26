@@ -3,6 +3,7 @@ from PyQt5 import QtCore, QtWidgets
 from utils.geo_utils import get_city_coordinates
 from utils.visualization import VisualizationQueue
 from viewmodels.delivery_viewmodel import DeliveryViewModel
+from viewmodels.disruption_viewmodel import DisruptionViewModel
 from viewmodels.driver_viewmodel import DriverViewModel
 from viewmodels.optimization_viewmodel import OptimizationViewModel
 from viewmodels.viewmodel_messenger import Messenger, MessageType
@@ -19,10 +20,12 @@ class MapWidget(LeafletMapWidget):
 
         self.delivery_viewmodel = DeliveryViewModel(messenger=self.messenger)
         self.driver_viewmodel = DriverViewModel(messenger=self.messenger)
+        self.disruption_viewmodel = DisruptionViewModel(messenger=self.messenger)
         self.optimization_viewmodel = OptimizationViewModel(
             delivery_viewmodel=self.delivery_viewmodel,
             driver_viewmodel=self.driver_viewmodel,
-            messenger=self.messenger
+            messenger=self.messenger,
+            disruption_viewmodel=self.disruption_viewmodel,
         )
 
         self.delivery_viewmodel.delivery_points_processed.connect(self.handle_delivery_points_processed)
@@ -48,6 +51,12 @@ class MapWidget(LeafletMapWidget):
         self.optimization_viewmodel.visualization_data_ready.connect(self.updateVisualizationFromBackground)
         self.optimization_viewmodel.solution_switch_available.connect(self.handle_solution_switch_available)
         self.optimization_viewmodel.enable_simulation_button.connect(self.enable_simulation_button)
+        self.optimization_viewmodel.request_load_disruptions.connect(self.load_disruptions)
+
+        self.disruption_viewmodel.disruption_generated.connect(self.handle_disruptions_generated)
+        self.disruption_viewmodel.disruption_activated.connect(self.handle_disruption_activated)
+        self.disruption_viewmodel.disruption_resolved.connect(self.handle_disruption_resolved)
+        self.disruption_viewmodel.request_show_message.connect(self.show_message)
 
         self.visualization_queue = VisualizationQueue(self.optimization_viewmodel)
         self.driver_viewmodel.set_visualization_queue(self.visualization_queue)
@@ -78,6 +87,26 @@ class MapWidget(LeafletMapWidget):
             unassigned = unassigned_deliveries
 
         self.addToVisualizationQueue((solution, unassigned))
+
+    def handle_disruptions_generated(self, disruptions):
+        """Handle generated disruptions"""
+        print(f"Generated {len(disruptions)} disruptions for simulation")
+
+    def handle_disruption_activated(self, disruption):
+        """Handle disruption activation"""
+        print(f"Disruption {disruption.id} activated: {disruption.type.value}")
+
+    def handle_disruption_resolved(self, disruption_id):
+        """Handle disruption resolution"""
+        print(f"Disruption {disruption_id} resolved")
+
+    def load_disruptions(self, disruptions):
+        """Load disruptions onto the map"""
+        super().load_disruptions(disruptions)
+
+    def toggle_disruptions(self, enabled):
+        """Toggle disruptions on/off"""
+        super().toggle_disruptions(enabled)
 
     def handle_warehouse_location_changed(self, location):
         """Handle warehouse location updates"""
@@ -312,8 +341,13 @@ class MapWidget(LeafletMapWidget):
 
     def run_simulation(self):
         """Run a simulation of the delivery routes"""
-        if hasattr(self.optimization_viewmodel, 'run_simulation'):
-            self.optimization_viewmodel.run_simulation()
+        if not hasattr(self.optimization_viewmodel, 'run_simulation'):
+            print("Error: OptimizationViewModel does not have run_simulation method.")
+            self.show_message("Error", "Simulation functionality not available.", "critical")
+            return
+
+        # Continue with optimization viewmodel's run_simulation
+        self.optimization_viewmodel.run_simulation()
 
     @property
     def snapped_delivery_points(self):

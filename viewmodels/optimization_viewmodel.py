@@ -29,14 +29,16 @@ class OptimizationViewModel(QtCore.QObject):
     request_start_simulation = QtCore.pyqtSignal(list)
     request_set_simulation_speed = QtCore.pyqtSignal(float)
     request_show_message = QtCore.pyqtSignal(str, str, str)
+    request_load_disruptions = QtCore.pyqtSignal(list)
 
     _route_calculation_executor = ThreadPoolExecutor(max_workers=2)
 
-    def __init__(self, driver_viewmodel=None, delivery_viewmodel=None, messenger=None):
+    def __init__(self, driver_viewmodel=None, delivery_viewmodel=None, messenger=None, disruption_viewmodel=None):
         super().__init__()
         self.route_color_manager = RouteColorManager()
         self.driver_viewmodel = driver_viewmodel
         self.delivery_viewmodel = delivery_viewmodel
+        self.disruption_viewmodel = disruption_viewmodel
         self.messenger = messenger
 
         self.current_solution = None
@@ -68,6 +70,7 @@ class OptimizationViewModel(QtCore.QObject):
             self.messenger.subscribe(MessageType.GRAPH_LOADED, self.handle_graph_loaded)
             self.messenger.subscribe(MessageType.DELIVERY_POINTS_UPDATED, self.handle_delivery_points_updated)
             self.messenger.subscribe(MessageType.DRIVER_UPDATED, self.handle_drivers_updated)
+            self.messenger.subscribe(MessageType.DISRUPTION_VISUALIZATION, self.handle_disruption_visualization)
 
     def prepare_optimization(self, delivery_drivers, snapped_delivery_points, graph):
         """Prepare data for optimization"""
@@ -435,32 +438,57 @@ class OptimizationViewModel(QtCore.QObject):
         return route_points, travel_times, delivery_indices
 
     def run_simulation(self):
-        """Run a simulation of drivers delivering packages using actual travel times"""
+        """Run a simulation of the delivery routes using actual travel times"""
         if not self.current_solution:
+            self.request_show_message.emit(
+                "Simulation Error",
+                "No solution available to simulate.",
+                "warning"
+            )
             return
 
         try:
             self.request_show_loading.emit()
 
             simulation_data = []
+            all_detailed_route_points = []
             total_drivers = len(self.delivery_drivers)
+
+            # Calculate expected completion time
+            total_expected_time = 0
+
+            unassigned_set = self.unassigned_deliveries if isinstance(self.unassigned_deliveries, set) else set(
+                self.unassigned_deliveries or [])
 
             for assignment in self.current_solution:
                 if not assignment.delivery_indices:
                     continue
 
+                assigned_indices_for_driver = [idx for idx in assignment.delivery_indices if idx not in unassigned_set]
+                if not assigned_indices_for_driver:
+                    print(f"Warning: Driver {assignment.driver_id} has no assigned deliveries in the current view.")
+                    continue
+
+                temp_assignment = assignment.copy(update={'delivery_indices': assigned_indices_for_driver})
+
                 route_points, travel_times, delivery_indices = self._calculate_route_points(
-                    assignment,
+                    temp_assignment,
                     self.warehouse_location,
-                    self.unassigned_deliveries
+                    set()
                 )
 
                 if not route_points or len(route_points) < 2:
                     print(f"Warning: No valid route found for driver {assignment.driver_id}")
                     continue
 
+                all_detailed_route_points.extend(route_points)
+
                 while len(travel_times) < len(route_points) - 1:
                     travel_times.append(1.0)
+
+                route_time = sum(travel_times)
+                if route_time > total_expected_time:
+                    total_expected_time = route_time
 
                 route_style = self.route_color_manager.get_route_style(
                     assignment.driver_id - 1,
@@ -473,6 +501,16 @@ class OptimizationViewModel(QtCore.QObject):
                     "travelTimes": travel_times,
                     "deliveryIndices": delivery_indices,
                     "style": route_style
+                })
+
+            # Tell disruption viewmodel about simulation starting
+            if self.messenger:
+                self.messenger.send(MessageType.SIMULATION_STARTED, {
+                    'total_expected_time': total_expected_time,
+                    'drivers': self.delivery_drivers,
+                    'solution': self.current_solution,
+                    'all_detailed_route_points': all_detailed_route_points,
+                    'send_to_map': True
                 })
 
             self.request_hide_loading.emit()
@@ -494,7 +532,6 @@ class OptimizationViewModel(QtCore.QObject):
                     "warning"
                 )
 
-
         except Exception as e:
             self.request_hide_loading.emit()
             print(f"Simulation error: {e}")
@@ -505,6 +542,11 @@ class OptimizationViewModel(QtCore.QObject):
                 f"An error occurred while starting the simulation:\n{str(e)}",
                 "critical"
             )
+
+    def handle_disruption_visualization(self, data):
+        """Handle disruption visualization data"""
+        if 'disruptions' in data and hasattr(self, 'request_load_disruptions'):
+            self.request_load_disruptions.emit(data['disruptions'])
 
     def on_sa_finished(self, solution, unassigned):
         """Handle SA optimization completion"""

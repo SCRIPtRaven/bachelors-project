@@ -1,102 +1,174 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <title>Delivery Route Planner</title>
-    
-        <!-- Leaflet CSS -->
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    
-        <style>
-            html, body {
-                height: 100%;
-                margin: 0;
-                padding: 0;
-            }
-    
-            #map {
-                height: 100%;
-                width: 100%;
-            }
-    
-            .driver-marker {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                border-radius: 50%;
-                width: 20px;
-                height: 20px;
-                font-weight: bold;
-                color: white;
-                border: 2px solid white;
-                box-shadow: 0 0 3px rgba(0,0,0,0.5);
-            }
-    
-            .leaflet-popup-content {
-                min-width: 150px;
-            }
-    
-            #loading-indicator {
-                position: absolute;
-                bottom: 20px;
-                left: 50%;
-                transform: translateX(-50%);
-                background-color: rgba(255, 255, 255, 0.8);
-                padding: 15px 25px;
-                border-radius: 10px;
-                display: none;
-                text-align: center;
-                z-index: 1000;
-                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-                font-weight: bold;
-            }
-    
-            .spinner {
-                border: 5px solid #f3f3f3;
-                border-top: 5px solid #3498db;
-                border-radius: 50%;
-                width: 40px;
-                height: 40px;
-                animation: spin 1s linear infinite;
-                margin: 0 auto 10px auto;
-            }
+<head>
+    <meta charset="utf-8">
+    <title>Delivery Route Planner</title>
 
-            .clock-container {
-                z-index: 1000;
-                font-family: 'Arial', sans-serif;
-                transition: background-color 0.3s;
-            }
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
-            .clock-container:hover {
-                background-color: rgba(255, 255, 255, 0.95) !important;
-            }
-    
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-        </style>
-    </head>
-    <body>
-        <div id="map"></div>
-    
-        <div id="loading-indicator">
-            <div class="spinner"></div>
-            <div>Optimizing Routes...</div>
-        </div>
-    
-        <!-- Leaflet JS -->
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
-        <!-- QWebChannel for communication with Python -->
-        <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 
-        <script src="map.js"></script>
-    
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                initMap({{CENTER_LAT}}, {{CENTER_LON}}, {{ZOOM_LEVEL}});
-            });
-        </script>
-    </body>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        .driver-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-weight: bold;
+            color: white;
+            border: 2px solid white;
+            box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+        }
+
+        .leaflet-popup-content {
+            min-width: 150px;
+        }
+
+        #loading-indicator {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 15px 25px;
+            border-radius: 10px;
+            display: none;
+            text-align: center;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            font-weight: bold;
+        }
+
+        .spinner {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px auto;
+        }
+
+        .clock-container {
+            z-index: 1000;
+            font-family: 'Arial', sans-serif;
+            transition: background-color 0.3s;
+        }
+
+        .clock-container:hover {
+            background-color: rgba(255, 255, 255, 0.95) !important;
+        }
+
+        .disruption-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            width: 30px !important;
+            height: 30px !important;
+            border-radius: 50%;
+            background-color: white;
+            border: 2px solid #333;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+            z-index: 1000 !important;
+        }
+
+        .disruption-popup .status {
+            padding: 3px 8px;
+            border-radius: 3px;
+            display: inline-block;
+            margin-top: 0;
+        }
+
+        .disruption-popup .status.active {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        .disruption-popup .status.inactive {
+            background-color: #9E9E9E;
+            color: white;
+        }
+
+        .disruption-icon {
+            font-size: 16px;
+            line-height: 30px;
+            text-align: center;
+            width: 100%;
+        }
+
+        .disruption-popup {
+            min-width: 200px;
+        }
+
+        .disruption-popup h3 {
+            margin: 0 0 10px 0;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 5px;
+        }
+
+        .disruption-popup p {
+            margin: 5px 0;
+        }
+
+        .disruption-popup .status.future {
+            background-color: #1976D2;
+            color: white;
+        }
+
+        .disruption-indicator {
+            z-index: 2000 !important;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="loading-indicator">
+    <div class="spinner"></div>
+    <div>Optimizing Routes...</div>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- QWebChannel for communication with Python -->
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+
+<script src="map.js"></script>
+<script src="disruptions.js"></script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        try {
+          initMap({{CENTER_LAT}}, {{CENTER_LON}}, {{ZOOM_LEVEL}});
+        } catch (e) {
+          console.error("Map initialization failed:", e);
+        }
+    });
+</script>
+</body>
 </html>

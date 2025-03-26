@@ -20,6 +20,12 @@ class MessageType:
     VISUALIZATION_NEEDED = "visualization_needed"
     STATS_UPDATED = "stats_updated"
 
+    DISRUPTION_GENERATED = "disruption_generated"
+    DISRUPTION_ACTIVATED = "disruption_activated"
+    DISRUPTION_RESOLVED = "disruption_resolved"
+    DISRUPTION_VISUALIZATION = "disruption_visualization"
+    SIMULATION_TIME_UPDATED = "simulation_time_updated"
+
 
 class Messenger(QtCore.QObject):
     """Central message bus for inter-ViewModel communication"""

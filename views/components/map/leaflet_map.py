@@ -41,6 +41,7 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
 
         template_dir = RESOURCES_DIR / 'templates'
 
+        # Copy map.js
         js_template_path = os.path.join(template_dir, "map.js")
         js_output_path = os.path.join(os.path.dirname(MAP_HTML), "map.js")
 
@@ -50,6 +51,17 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         with open(js_output_path, "w", encoding="utf-8") as f:
             f.write(js_content)
 
+        # Copy disruptions.js
+        disruptions_template_path = os.path.join(template_dir, "disruptions.js")
+        disruptions_output_path = os.path.join(os.path.dirname(MAP_HTML), "disruptions.js")
+
+        with open(disruptions_template_path, "r", encoding="utf-8") as f:
+            disruptions_content = f.read()
+
+        with open(disruptions_output_path, "w", encoding="utf-8") as f:
+            f.write(disruptions_content)
+
+        # Continue with HTML template processing
         html_template_path = os.path.join(template_dir, "map_template.html")
         with open(html_template_path, "r", encoding="utf-8") as f:
             html_content = f.read()
@@ -93,6 +105,41 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         js_code = f"if (typeof updateLayer === 'function') {{ updateLayer('{layer_name}', {json.dumps(data)}); }}"
         self.execute_js(js_code)
         return True
+
+    def load_disruptions(self, disruptions):
+        """Load disruptions onto the map"""
+        disruption_data = []
+
+        for disruption in disruptions:
+            # Check if we received a dictionary or an object
+            if isinstance(disruption, dict):
+                # Already in dictionary format, use as-is
+                data = disruption
+            else:
+                # It's a Disruption object, extract the properties
+                data = {
+                    'id': disruption.id,
+                    'type': disruption.type.value,
+                    'location': {
+                        'lat': disruption.location[0],
+                        'lng': disruption.location[1]
+                    },
+                    'radius': disruption.affected_area_radius,
+                    'start_time': disruption.start_time,
+                    'duration': disruption.duration,
+                    'severity': disruption.severity,
+                    'description': disruption.metadata.get('description',
+                                                           f"{disruption.type.value.replace('_', ' ').title()}")
+                }
+            disruption_data.append(data)
+
+        js_code = f"if (typeof loadDisruptions === 'function') {{ loadDisruptions({json.dumps(disruption_data)}); }}"
+        self.execute_js(js_code)
+
+    def toggle_disruptions(self, enabled):
+        """Toggle disruption visibility"""
+        js_code = f"if (typeof toggleDisruptions === 'function') {{ toggleDisruptions({str(enabled).lower()}); }}"
+        self.execute_js(js_code)
 
     def clear_layer(self, layer_name):
         """Clear a specific layer"""
