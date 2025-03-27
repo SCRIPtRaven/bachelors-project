@@ -41,25 +41,19 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
 
         template_dir = RESOURCES_DIR / 'templates'
 
-        # Copy map.js
-        js_template_path = os.path.join(template_dir, "map.js")
-        js_output_path = os.path.join(os.path.dirname(MAP_HTML), "map.js")
+        js_files = ["map.js", "disruptions.js", "simulation_actions.js"]
+        output_dir = os.path.dirname(MAP_HTML)
 
-        with open(js_template_path, "r", encoding="utf-8") as f:
-            js_content = f.read()
+        # Copy all JavaScript files
+        for js_file in js_files:
+            template_path = os.path.join(template_dir, js_file)
+            output_path = os.path.join(output_dir, js_file)
 
-        with open(js_output_path, "w", encoding="utf-8") as f:
-            f.write(js_content)
+            with open(template_path, "r", encoding="utf-8") as f:
+                js_content = f.read()
 
-        # Copy disruptions.js
-        disruptions_template_path = os.path.join(template_dir, "disruptions.js")
-        disruptions_output_path = os.path.join(os.path.dirname(MAP_HTML), "disruptions.js")
-
-        with open(disruptions_template_path, "r", encoding="utf-8") as f:
-            disruptions_content = f.read()
-
-        with open(disruptions_output_path, "w", encoding="utf-8") as f:
-            f.write(disruptions_content)
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(js_content)
 
         # Continue with HTML template processing
         html_template_path = os.path.join(template_dir, "map_template.html")

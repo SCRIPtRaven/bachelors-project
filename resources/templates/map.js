@@ -42,6 +42,8 @@ function initMap(centerLat, centerLon, zoomLevel) {
 
     new QWebChannel(qt.webChannelTransport, function (channel) {
         window.mapHandler = channel.objects.mapHandler;
+        window.simInterface = channel.objects.simInterface;
+        console.log("QWebChannel initialized with simInterface:", window.simInterface ? "available" : "not available");
         mapHandler.handleEvent("map_initialized");
     });
 }
@@ -237,6 +239,15 @@ function addDriverData(data) {
 }
 
 function startSimulation(simulationData) {
+    if (window.simInterface && typeof window.simInterface.isSimulationControllerAvailable === 'function') {
+        const controllerAvailable = window.simInterface.isSimulationControllerAvailable();
+        if (!controllerAvailable) {
+            console.error("Cannot start simulation: Simulation controller not available");
+            alert("Cannot start simulation: Controller not ready. Please try again.");
+            return;
+        }
+    }
+
     stopSimulation();
     clearLayer('drivers');
     simulationDrivers = [];
@@ -343,18 +354,19 @@ function setSimulationSpeed(speed) {
     simulationSpeed = speed;
 }
 
+
 function updateSimulation() {
     try {
         if (!simulationRunning) return;
 
         const now = Date.now();
-
         const realElapsedSeconds = (now - lastClockUpdateTime) / 1000;
         lastClockUpdateTime = now;
 
         const simulationTimeIncrement = realElapsedSeconds * simulationSpeed;
         simulationTime += simulationTimeIncrement;
 
+        // Update disruption visibility based on current time
         if (disruptionsEnabled && typeof updateDisruptionVisibility === 'function') {
             updateDisruptionVisibility(simulationTime);
         }
@@ -374,59 +386,71 @@ function updateSimulation() {
 
                 allComplete = false;
 
-                // Calculate how much this driver is affected by nearby disruptions
+                checkDriverNearDisruptions(driver);
+
+                // Calculate delay factor from disruptions
                 const delayFactor = getDriverDelayFactor(driver);
 
-                // Update visual indicator on driver icon based on delay
+                // Update visual indicator based on delay
                 updateDriverDisruptionIndicator(driver, delayFactor);
 
-                // Apply delay factor to reduce speed when in disruption zones
+                // Apply delay to driver movement
                 driver.elapsedOnSegment += cappedElapsed * simulationSpeed * delayFactor;
 
+                // Get time for current segment
                 let segmentTime = 10;
                 if (driver.travelTimes && driver.travelTimes.length > driver.currentIndex) {
                     segmentTime = driver.travelTimes[driver.currentIndex];
-
                     if (segmentTime <= 0) {
-                        console.warn(`Driver ${driver.id}, segment ${driver.currentIndex}: Invalid segmentTime ${segmentTime}. Using fallback.`);
                         segmentTime = 10;
                     }
                 }
 
                 const progress = driver.elapsedOnSegment / segmentTime;
 
+                // Handle segment completion
                 if (progress >= 1.0) {
                     driver.completedDistance += segmentTime;
                     driver.currentIndex++;
                     driver.elapsedOnSegment = 0;
 
                     if (driver.currentIndex >= driver.path.length - 1) {
-                        driver.isActive = false; // Mark as inactive
-                        driver.marker.setLatLng(driver.path[driver.path.length - 1]); // Snap to exact end
-                        console.log(`Driver ${driver.id} finished at simulation time: ${formatTimeHMS(simulationTime)}`);
-                        // Don't return yet, let the allComplete check handle stopping
+                        driver.isActive = false;
+                        driver.marker.setLatLng(driver.path[driver.path.length - 1]);
                     } else {
-                        // Still active, snap to the start of the new segment
                         driver.marker.setLatLng(driver.path[driver.currentIndex]);
                     }
-
                 } else if (driver.currentIndex < driver.path.length - 1) {
-                    // Interpolate position on the current segment
+                    // Interpolate position within segment
                     const startPoint = driver.path[driver.currentIndex];
                     const endPoint = driver.path[driver.currentIndex + 1];
                     const newLat = startPoint[0] + (endPoint[0] - startPoint[0]) * progress;
                     const newLng = startPoint[1] + (endPoint[1] - startPoint[1]) * progress;
-                    driver.marker.setLatLng([newLat, newLng]);
+                    const newPosition = [newLat, newLng];
+                    driver.marker.setLatLng(newPosition);
+
+                    // Send driver position to backend for proximity disruption checks
+                    if (window.simInterface) {
+                        window.simInterface.handleEvent(JSON.stringify({
+                            type: 'driver_position_updated',
+                            data: {
+                                driver_id: driver.id,
+                                lat: newLat,
+                                lon: newLng
+                            }
+                        }));
+                    }
                 }
 
-                if (driver.isActive && // Only trigger if still active
+                // Check for deliveries
+                if (driver.isActive &&
                     driver.deliveryIndices &&
                     driver.deliveryIndices.includes(driver.currentIndex) &&
                     !driver.visited.includes(driver.currentIndex)) {
-                    triggerDeliveryAnimation(driver, driver.currentIndex, simulationTime); // Pass simulationTime
+                    triggerDeliveryAnimation(driver, driver.currentIndex, simulationTime);
                 }
             } catch (driverError) {
-                console.error(`Error updating driver ${driver.id}:`, driverError, driverError.stack);
+                console.error(`Error updating driver ${driver.id}:`, driverError);
             }
         });
 
@@ -434,8 +458,6 @@ function updateSimulation() {
 
         if (allComplete) {
             console.log("All drivers completed their routes");
-            console.log("Final time:", formatTimeHMS(simulationTime));
-
             stopSimulation();
         }
     } catch (error) {

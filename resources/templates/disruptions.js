@@ -17,26 +17,14 @@ function clearDisruptions() {
 
 function updateDisruptionVisibility(simulationTime) {
     currentSimulationTime = simulationTime;
-    console.log(`Current sim time: ${formatTimeHMS(simulationTime)}, checking ${activeDisruptions.length} disruptions`);
 
     activeDisruptions.forEach(disruption => {
-        const isActive = disruption.start_time <= simulationTime &&
-            (disruption.start_time + disruption.duration) >= simulationTime;
-        const isFuture = disruption.start_time > simulationTime;
-
         if (disruption.id in disruptionMarkers) {
             const marker = disruptionMarkers[disruption.id].marker;
             const circle = disruptionMarkers[disruption.id].circle;
 
-            // Always show on map - even future disruptions
-            if (!marker._map) {
-                marker.addTo(layers.disruptions);
-                circle.addTo(layers.disruptions);
-                console.log(`Added disruption ${disruption.id} to map`);
-            }
-
-            // Style based on status
-            if (isActive) {
+            // Style based on activation state (_wasActive tracks JS-side activation)
+            if (disruption._wasActive) {
                 // Active disruption styling
                 circle.setStyle({
                     fillOpacity: 0.6 * disruption.severity,
@@ -45,29 +33,22 @@ function updateDisruptionVisibility(simulationTime) {
                     color: getDisruptionColor(disruption.type),
                     fillColor: getDisruptionColor(disruption.type)
                 });
-            } else if (isFuture) {
-                // Future disruption styling
+
+                // Update popup content
+                marker.bindPopup(createDisruptionPopup(disruption, true, false));
+            } else {
+                // Inactive disruption styling
                 circle.setStyle({
                     fillOpacity: 0.3,
                     opacity: 0.6,
                     dashArray: "5, 10",
-                    color: "#1976D2", // Blue for future
-                    fillColor: "#1976D2"
-                });
-            } else {
-                // Past disruption styling
-                circle.setStyle({
-                    fillOpacity: 0.2,
-                    opacity: 0.4,
-                    dashArray: "5, 5",
-                    color: "#555555",
+                    color: "#777777",
                     fillColor: "#777777"
                 });
-            }
 
-            // Update popup content
-            const status = isActive ? "ACTIVE" : (isFuture ? "UPCOMING" : "RESOLVED");
-            marker.bindPopup(createDisruptionPopup(disruption, isActive, isFuture));
+                // Update popup content
+                marker.bindPopup(createDisruptionPopup(disruption, false, false));
+            }
         }
     });
 }
@@ -77,6 +58,9 @@ function loadDisruptions(disruptions) {
 
     disruptions.forEach(disruption => {
         if (!existingIds.includes(disruption.id)) {
+            // Initialize default active state
+            disruption._wasActive = disruption.is_active || false;
+
             activeDisruptions.push(disruption);
 
             // Create marker and circle for this disruption
@@ -96,6 +80,10 @@ function loadDisruptions(disruptions) {
                 weight: 2,
                 opacity: 0.7
             });
+
+            // Add markers to the map - THIS WAS MISSING
+            marker.addTo(layers.disruptions);
+            circle.addTo(layers.disruptions);
 
             disruptionMarkers[disruption.id] = {marker, circle};
         }

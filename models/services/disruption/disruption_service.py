@@ -136,13 +136,15 @@ class DisruptionService:
         disruption = Disruption(
             id=self.next_disruption_id,
             type=disruption_type,
-            location=location,  # Should be (lat, lon)
+            location=location,
             affected_area_radius=radius,
             start_time=start_time,
             duration=duration,
             severity=severity,
             metadata=metadata,
-            affected_driver_ids=affected_driver_ids if disruption_type == DisruptionType.VEHICLE_BREAKDOWN else set()
+            affected_driver_ids=affected_driver_ids,
+            is_active=False,  # <-- Explicitly make it inactive
+            is_proximity_based=True
         )
 
         self.next_disruption_id += 1
@@ -152,8 +154,10 @@ class DisruptionService:
         """Get all disruptions active at the given simulation time"""
         active = []
         for disruption in self.disruptions:
+            # ADD ACTIVATION CHECK - must be explicitly activated
             if (disruption.start_time <= simulation_time and
                     disruption.start_time + disruption.duration >= simulation_time and
+                    disruption.is_active and  # <-- This is the key change
                     not disruption.resolved):
                 active.append(disruption)
         return active
@@ -219,3 +223,106 @@ class DisruptionService:
         c = 2 * math.asin(math.sqrt(a))
         r = 6371000  # Radius of earth in meters
         return c * r
+
+    def check_drivers_near_disruptions(self, driver_positions, driver_routes=None):
+        """
+        Check if any drivers are close to inactive disruptions and activate them.
+        """
+        newly_activated = []
+
+        # Only check inactive, proximity-based, non-resolved disruptions
+        eligible_disruptions = [
+            d for d in self.disruptions
+            if not d.is_active and d.is_proximity_based and not d.resolved
+        ]
+
+        if not eligible_disruptions:
+            return []
+
+        for disruption in eligible_disruptions:
+            # Check each driver's position against this disruption
+            for driver_id, position in driver_positions.items():
+                # Calculate distance between driver and disruption
+                distance = self._haversine_distance(position, disruption.location)
+
+                # Check if driver is within activation distance
+                if distance <= disruption.activation_distance:
+                    # Check if this driver's route passes through the disruption area
+                    if self._driver_route_affected(driver_id, disruption, driver_routes):
+                        # Activate the disruption
+                        if disruption.activate():
+                            print(
+                                f"Driver {driver_id} triggered disruption {disruption.id} at distance {distance:.1f}m")
+                            disruption.affected_driver_ids.add(driver_id)
+                            newly_activated.append(disruption)
+                            break  # Move to next disruption after one is activated
+
+        return newly_activated
+
+    def _driver_route_affected(self, driver_id, disruption, driver_routes=None):
+        """
+        Check if a driver's route passes through a disruption area.
+        """
+        # If we don't have route information, assume all drivers could be affected
+        if not driver_routes or driver_id not in driver_routes:
+            return True
+
+        # Get the driver's route points
+        route = driver_routes[driver_id]
+        if not route or not isinstance(route, dict) or 'points' not in route:
+            return True
+
+        route_points = route['points']
+
+        # Check if any route segment passes near the disruption
+        for i in range(len(route_points) - 1):
+            start_point = route_points[i]
+            end_point = route_points[i + 1]
+
+            # Check if this segment is close to the disruption
+            if self._segment_near_disruption(start_point, end_point, disruption):
+                return True
+
+        return False
+
+    def _segment_near_disruption(self, start, end, disruption):
+        """Check if a route segment passes near a disruption"""
+        # Check if either endpoint is within the disruption radius
+        if (self._haversine_distance(start, disruption.location) <= disruption.affected_area_radius or
+                self._haversine_distance(end, disruption.location) <= disruption.affected_area_radius):
+            return True
+
+        # Check if the line segment passes close to the disruption
+        closest_distance = self._point_to_segment_distance(
+            disruption.location, start, end)
+
+        return closest_distance <= disruption.affected_area_radius
+
+    def _point_to_segment_distance(self, point, segment_start, segment_end):
+        """Calculate the shortest distance from a point to a line segment"""
+        # Convert coordinates to a simpler system for calculations
+        # This is an approximation that works for relatively small distances
+        p_lat, p_lon = point
+        s_lat, s_lon = segment_start
+        e_lat, e_lon = segment_end
+
+        # Vector from start to end
+        dx = e_lat - s_lat
+        dy = e_lon - s_lon
+
+        # Squared length of segment
+        segment_length_sq = dx * dx + dy * dy
+
+        # If segment is essentially a point, return distance to that point
+        if segment_length_sq < 1e-10:
+            return self._haversine_distance(point, segment_start)
+
+        # Calculate projection of point onto segment line
+        t = max(0, min(1, ((p_lat - s_lat) * dx + (p_lon - s_lon) * dy) / segment_length_sq))
+
+        # Calculate closest point on segment
+        closest_lat = s_lat + t * dx
+        closest_lon = s_lon + t * dy
+
+        # Return distance to closest point
+        return self._haversine_distance(point, (closest_lat, closest_lon))

@@ -3,6 +3,8 @@ from PyQt5 import QtCore
 
 class MessageType:
     """Constants for message types in the messenger system"""
+    DELIVERY_FAILED = "delivery_failed"
+    DELIVERY_COMPLETED = "delivery_completed"
     GRAPH_LOADED = "graph_loaded"
     GRAPH_UPDATED = "graph_updated"
     WAREHOUSE_LOCATION_UPDATED = "warehouse_location_updated"
