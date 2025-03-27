@@ -1,5 +1,6 @@
 from PyQt5 import QtCore, QtWidgets
 
+from models.rl.js_interface import SimulationJsInterface
 from utils.geo_utils import get_city_coordinates
 from utils.visualization import VisualizationQueue
 from viewmodels.delivery_viewmodel import DeliveryViewModel
@@ -17,6 +18,9 @@ class MapWidget(LeafletMapWidget):
         super().__init__(parent)
 
         self.messenger = Messenger()
+
+        self.js_interface = SimulationJsInterface()
+        self.channel.registerObject("simInterface", self.js_interface)
 
         self.delivery_viewmodel = DeliveryViewModel(messenger=self.messenger)
         self.driver_viewmodel = DriverViewModel(messenger=self.messenger)
@@ -57,15 +61,124 @@ class MapWidget(LeafletMapWidget):
         self.disruption_viewmodel.disruption_activated.connect(self.handle_disruption_activated)
         self.disruption_viewmodel.disruption_resolved.connect(self.handle_disruption_resolved)
         self.disruption_viewmodel.request_show_message.connect(self.show_message)
+        self.disruption_viewmodel.request_map_route_update.connect(
+            self.handle_viewmodel_route_update_request
+        )
 
         self.visualization_queue = VisualizationQueue(self.optimization_viewmodel)
         self.driver_viewmodel.set_visualization_queue(self.visualization_queue)
+
+        self.js_interface.disruption_activated.connect(self.handle_js_disruption_activated)
+        self.js_interface.disruption_resolved.connect(self.handle_js_disruption_resolved)
+        self.js_interface.driver_position_updated.connect(self.handle_js_driver_position)
+        self.js_interface.delivery_completed.connect(self.handle_js_delivery_completed)
+        self.js_interface.delivery_failed.connect(self.handle_js_delivery_failed)
+        self.js_interface.simulation_time_updated.connect(self.handle_js_simulation_time)
+        self.js_interface.driver_position_updated.connect(self.handle_js_driver_position)
+        self.js_interface.disruption_activated.connect(self.handle_js_disruption_activated)
 
         self.driver_labels = {}
         self._selected_driver_id = None
 
         self.is_loading = False
         self.is_computing = False
+
+    @QtCore.pyqtSlot(int)
+    def handle_viewmodel_route_update_request(self, driver_id):
+        print(f"MapWidget: Received route update *request* for driver {driver_id}")
+        route_string = self.disruption_viewmodel.get_cached_route_update(driver_id)
+        if route_string is not None:
+            print(f"MapWidget: Retrieved route string for driver {driver_id} (length {len(route_string)})")
+            self._execute_js_route_update(driver_id, route_string)
+        else:
+            print(
+                f"MapWidget: Warning - No cached route string found for driver {driver_id} (could be race condition or error)")
+
+    def _execute_js_route_update(self, driver_id, route_string):
+        """Handles the actual JS execution part"""
+        try:
+            js_safe_route_string = route_string.replace('\\', '\\\\').replace("'", "\\'")
+
+            # Parse the route string to get information for the action object
+            js_code = f"""
+            (function() {{
+                console.log('JS CALL from MapWidget for driver {driver_id}');
+
+                // Find the driver object
+                const driver = simulationDrivers.find(d => d.id === {driver_id});
+                if (!driver) {{
+                    console.error('Driver {driver_id} not found');
+                    return false;
+                }}
+
+                // Parse the route data
+                let routeData;
+                try {{
+                    routeData = JSON.parse('{js_safe_route_string}');
+                }} catch (e) {{
+                    console.error('Error parsing route data:', e);
+                    return false;
+                }}
+
+                // Format the points from the route data
+                let routePoints = [];
+                if (routeData.points) {{
+                    routePoints = routeData.points.split(';').map(pair => {{
+                        const coords = pair.split(',');
+                        return [parseFloat(coords[0]), parseFloat(coords[1])];
+                    }}).filter(p => p[0] && p[1]);
+                }}
+
+                if (routePoints.length < 2) {{
+                    console.error('Not enough route points');
+                    return false;
+                }}
+
+                // Create the action object for handleRerouteAction
+                const action = {{
+                    action_type: 'REROUTE',
+                    driver_id: {driver_id},
+                    new_route: routePoints,
+                    affected_disruption_id: routeData.affected_disruption_id || 0,
+                    rerouted_segment_start: routeData.rerouted_segment_start || 0,
+                    rerouted_segment_end: routeData.rerouted_segment_end || 0,
+                    next_delivery_index: routeData.next_delivery_index,
+                    delivery_indices: routeData.delivery_indices || []
+                }};
+
+                // Call handleRerouteAction directly
+                if (typeof handleRerouteAction === 'function') {{
+                    handleRerouteAction(driver, action);
+                    return true;
+                }} else {{
+                    console.error('handleRerouteAction function is not available');
+                    return false;
+                }}
+            }})();
+            """
+
+            print(f"MapWidget: Executing JavaScript route update for driver {driver_id}...")
+            self.execute_js(js_code)
+        except Exception as e:
+            print(f"MapWidget: Error executing JS route update: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def handle_js_driver_position(self, driver_id, lat, lon):
+        """Handle driver position updates from JavaScript"""
+        if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
+            if hasattr(self.disruption_viewmodel, 'simulation_controller') and \
+                    self.disruption_viewmodel.simulation_controller:
+                self.disruption_viewmodel.simulation_controller.update_driver_position(
+                    driver_id, (lat, lon))
+
+    def handle_js_disruption_activated(self, disruption_id):
+        """Handle disruption activation from JavaScript"""
+        print(f"Python received disruption activation for ID: {disruption_id}")
+        if self.messenger:
+            self.messenger.send(MessageType.DISRUPTION_ACTIVATED, {
+                'disruption_id': disruption_id
+            })
 
     def handle_delivery_points_processed(self, points, successful, skipped):
         """Handle processed delivery points"""
@@ -78,6 +191,51 @@ class MapWidget(LeafletMapWidget):
                 f"Skipped {skipped} inaccessible points.",
                 "information"
             )
+
+    def handle_js_disruption_resolved(self, disruption_id):
+        """Handle disruption resolution from JavaScript"""
+        if self.messenger:
+            self.messenger.send(MessageType.DISRUPTION_RESOLVED, {
+                'disruption_id': disruption_id
+            })
+
+    def handle_js_delivery_completed(self, driver_id, delivery_index):
+        """Handle delivery completion from JavaScript"""
+        if self.messenger:
+            self.messenger.send(MessageType.DELIVERY_COMPLETED, {
+                'driver_id': driver_id,
+                'delivery_index': delivery_index
+            })
+
+        if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
+            if hasattr(self.disruption_viewmodel,
+                       'simulation_controller') and self.disruption_viewmodel.simulation_controller:
+                self.disruption_viewmodel.simulation_controller.completed_deliveries.add(delivery_index)
+
+    def handle_js_delivery_failed(self, driver_id, delivery_index):
+        """Handle delivery failure from JavaScript"""
+        if self.messenger:
+            self.messenger.send(MessageType.DELIVERY_FAILED, {
+                'driver_id': driver_id,
+                'delivery_index': delivery_index
+            })
+
+        if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
+            if hasattr(self.disruption_viewmodel,
+                       'simulation_controller') and self.disruption_viewmodel.simulation_controller:
+                self.disruption_viewmodel.simulation_controller.skipped_deliveries.add(delivery_index)
+
+    def handle_js_simulation_time(self, simulation_time):
+        """Handle simulation time updates from JavaScript"""
+        if self.messenger:
+            self.messenger.send(MessageType.SIMULATION_TIME_UPDATED, {
+                'simulation_time': simulation_time
+            })
+
+        if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
+            if hasattr(self.disruption_viewmodel,
+                       'simulation_controller') and self.disruption_viewmodel.simulation_controller:
+                self.disruption_viewmodel.simulation_controller.update_simulation_time(simulation_time)
 
     def update_visualization(self, solution, unassigned_deliveries=None):
         """Handle visualization updates from the OptimizationViewModel"""
@@ -237,8 +395,6 @@ class MapWidget(LeafletMapWidget):
             self.G = graph
             self.current_city = city_name
 
-            self.delivery_viewmodel.set_graph(graph)
-
             self.messenger.send(MessageType.GRAPH_LOADED, {
                 'graph': graph,
                 'city_name': city_name
@@ -346,7 +502,24 @@ class MapWidget(LeafletMapWidget):
             self.show_message("Error", "Simulation functionality not available.", "critical")
             return
 
-        # Continue with optimization viewmodel's run_simulation
+        if not hasattr(self.optimization_viewmodel,
+                       'current_solution') or not self.optimization_viewmodel.current_solution:
+            self.show_message("Error",
+                              "Cannot run simulation: No route solution available. Please find routes first.",
+                              "critical")
+            return
+
+        self.disruption_viewmodel.current_solution = self.optimization_viewmodel.current_solution
+
+        if hasattr(self.disruption_viewmodel, 'initialize_simulation_controller'):
+            success = self.disruption_viewmodel.initialize_simulation_controller()
+            if success and self.disruption_viewmodel.simulation_controller:
+                self.js_interface.set_simulation_controller(self.disruption_viewmodel.simulation_controller)
+            else:
+                self.show_message("Error",
+                                  "Cannot start simulation: Simulation controller initialization failed.",
+                                  "critical")
+                return
         self.optimization_viewmodel.run_simulation()
 
     @property

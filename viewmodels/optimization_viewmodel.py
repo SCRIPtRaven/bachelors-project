@@ -19,6 +19,9 @@ class OptimizationViewModel(QtCore.QObject):
     enable_simulation_button = QtCore.pyqtSignal(bool)
     request_enable_ui = QtCore.pyqtSignal(bool)
 
+    action_stats_updated = QtCore.pyqtSignal(int, int, int, float)
+    action_log_event = QtCore.pyqtSignal(str, str)
+
     request_show_loading = QtCore.pyqtSignal()
     request_hide_loading = QtCore.pyqtSignal()
     request_clear_layers = QtCore.pyqtSignal()
@@ -71,6 +74,36 @@ class OptimizationViewModel(QtCore.QObject):
             self.messenger.subscribe(MessageType.DELIVERY_POINTS_UPDATED, self.handle_delivery_points_updated)
             self.messenger.subscribe(MessageType.DRIVER_UPDATED, self.handle_drivers_updated)
             self.messenger.subscribe(MessageType.DISRUPTION_VISUALIZATION, self.handle_disruption_visualization)
+
+        if self.disruption_viewmodel:
+            self.disruption_viewmodel.action_log_updated.connect(self.handle_action_log)
+
+    def handle_action_log(self, message, entry_type=None):
+        """Handle action log messages from the disruption viewmodel"""
+        entry_type = "action"
+        if "reroute" in message.lower():
+            entry_type = "reroute"
+        elif "reassign" in message.lower():
+            entry_type = "reassign"
+        elif "wait" in message.lower():
+            entry_type = "wait"
+        elif "skip" in message.lower():
+            entry_type = "skip"
+        elif "disruption" in message.lower():
+            entry_type = "disruption"
+
+        self.action_log_event.emit(message, entry_type)
+
+        if hasattr(self.disruption_viewmodel, 'simulation_controller'):
+            controller = self.disruption_viewmodel.simulation_controller
+            time_impact = controller.original_estimated_time - controller.current_estimated_time
+
+            self.action_stats_updated.emit(
+                controller.disruption_count,
+                controller.action_count,
+                controller.recalculation_count,
+                time_impact
+            )
 
     def prepare_optimization(self, delivery_drivers, snapped_delivery_points, graph):
         """Prepare data for optimization"""
@@ -611,12 +644,9 @@ class OptimizationViewModel(QtCore.QObject):
         """Handle driver selection from DriverViewModel"""
         driver_id = data.get('driver_id')
 
-        # If we have a solution, update visualization with the selected driver
         if self.current_solution:
-            # Reset visualization cache to force update
             self.last_visualized_solution = None
 
-            # Request visualization update
             self.request_update_visualization.emit(
                 deepcopy(self.current_solution),
                 self.unassigned_deliveries
@@ -642,7 +672,6 @@ class OptimizationViewModel(QtCore.QObject):
 
     def handle_drivers_updated(self, data):
         """Handle driver updates"""
-        # Store a reference to drivers
         if isinstance(data, list):
             self.set_delivery_drivers(data)
 

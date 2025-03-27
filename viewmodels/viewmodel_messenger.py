@@ -3,6 +3,8 @@ from PyQt5 import QtCore
 
 class MessageType:
     """Constants for message types in the messenger system"""
+    DELIVERY_FAILED = "delivery_failed"
+    DELIVERY_COMPLETED = "delivery_completed"
     GRAPH_LOADED = "graph_loaded"
     GRAPH_UPDATED = "graph_updated"
     WAREHOUSE_LOCATION_UPDATED = "warehouse_location_updated"
@@ -37,8 +39,20 @@ class Messenger(QtCore.QObject):
         self._subscribers = {}
 
     def send(self, message_type, data=None):
-        """Send a message to all subscribers"""
-        print(f"Messenger: Sending message {message_type}")
+        """Send a message to all subscribers with deduplication"""
+        message_hash = hash(str(message_type) + str(data))
+
+        if hasattr(self, '_last_messages'):
+            if message_hash in self._last_messages:
+                return
+        else:
+            self._last_messages = set()
+
+        self._last_messages.add(message_hash)
+        if len(self._last_messages) > 50:
+            self._last_messages = set(list(self._last_messages)[-50:])
+
+        #print(f"Messenger: Sending message {message_type}")
         self.message_sent.emit(message_type, data)
 
     def subscribe(self, message_type, callback):

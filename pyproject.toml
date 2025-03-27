@@ -23,6 +23,8 @@ pyqt5-sip = "^12.17.0"
 ortools = "^9.11.4210"
 colormath = "^3.0.0"
 pydantic = "^2.10.6"
+gym = "^0.26.2"
+keras = "^3.9.1"
 
 [build-system]
 requires = ["poetry-core"]

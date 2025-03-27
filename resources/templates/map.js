@@ -21,9 +21,6 @@ let lastClockUpdateTime = Date.now();
 let totalExpectedTravelTime = 0;
 let initialExpectedCompletionTime = 0;
 
-let targetSimulationTime = 8 * 60 * 60;
-let timeSmoothing = true;
-
 let disruptionsEnabled = true;
 let disruptionData = [];
 
@@ -42,6 +39,7 @@ function initMap(centerLat, centerLon, zoomLevel) {
 
     new QWebChannel(qt.webChannelTransport, function (channel) {
         window.mapHandler = channel.objects.mapHandler;
+        window.simInterface = channel.objects.simInterface;
         mapHandler.handleEvent("map_initialized");
     });
 }
@@ -86,44 +84,28 @@ function getDriverDelayFactor(driver) {
     let slowestFactor = 1.0;
 
     activeDisruptions.forEach(disruption => {
-        // Skip disruptions that aren't active at current simulation time
-        if (disruption.start_time > simulationTime ||
-            disruption.start_time + disruption.duration < simulationTime)
+        if (!disruption._wasActive)
             return;
 
-        // Calculate distance between driver and disruption center
         const disruptionPos = L.latLng(
             disruption.location.lat,
             disruption.location.lng
         );
         const distance = driverPosition.distanceTo(disruptionPos);
 
-        // Check if driver is within the affected radius
         if (distance <= disruption.radius) {
-            // Different disruption types have different effects on speed
             let factor = 1.0;
             switch (disruption.type) {
                 case 'traffic_jam':
-                    // Traffic jams slow vehicles proportional to severity
                     factor = Math.max(0.2, 1.0 - disruption.severity);
                     break;
                 case 'road_closure':
-                    // Road closures almost completely block movement
                     factor = 0.1;
                     break;
-                case 'vehicle_breakdown':
-                    // Breakdowns only affect the specific driver
-                    if (disruption.affected_driver_ids &&
-                        disruption.affected_driver_ids.includes(driver.id)) {
-                        factor = 0.2; // Almost stopped
-                    }
-                    break;
                 default:
-                    // Other disruption types have a moderate effect
                     factor = Math.max(0.5, 1.0 - disruption.severity);
             }
 
-            // Multiple disruptions stack by using the most severe effect
             if (factor < slowestFactor) {
                 slowestFactor = factor;
             }
@@ -190,7 +172,6 @@ function addWarehouseData(data) {
             .bindPopup(warehouse.popup)
             .addTo(layers.warehouse);
 
-        console.log("Added warehouse at:", warehouse.lat, warehouse.lng);
     });
 }
 
@@ -237,6 +218,15 @@ function addDriverData(data) {
 }
 
 function startSimulation(simulationData) {
+    if (window.simInterface && typeof window.simInterface.isSimulationControllerAvailable === 'function') {
+        const controllerAvailable = window.simInterface.isSimulationControllerAvailable();
+        if (!controllerAvailable) {
+            console.error("Cannot start simulation: Simulation controller not available");
+            alert("Cannot start simulation: Controller not ready. Please try again.");
+            return;
+        }
+    }
+
     stopSimulation();
     clearLayer('drivers');
     simulationDrivers = [];
@@ -259,8 +249,6 @@ function startSimulation(simulationData) {
     simulationTime = 8 * 60 * 60;
     initialExpectedCompletionTime = simulationTime + maxDriverTravelTime;
 
-    console.log("Expected total travel time across all drivers (seconds):", totalExpectedTravelTime);
-    console.log("Expected completion time:", formatTimeHMS(initialExpectedCompletionTime));
 
     if (!clockElement) {
         clockElement = L.control({position: 'topright'});
@@ -343,20 +331,104 @@ function setSimulationSpeed(speed) {
     simulationSpeed = speed;
 }
 
+function updateDisruptionVisibility(simulationTime) {
+    currentSimulationTime = simulationTime;
+
+    const previouslyActive = activeDisruptions.map(d => d._wasActive || false);
+
+    activeDisruptions.forEach((disruption, index) => {
+        if (disruption.duration && !disruption._resolved) {
+            if (!disruption.end_time) {
+                disruption.end_time = disruption._activationTime + disruption.duration;
+            }
+
+            if (disruption._wasActive && simulationTime >= disruption.end_time) {
+                disruption._resolved = true;
+
+                if (window.simInterface) {
+                    window.simInterface.handleEvent(JSON.stringify({
+                        type: 'disruption_resolved',
+                        data: {
+                            disruption_id: disruption.id
+                        }
+                    }));
+                }
+            }
+        }
+
+        if (disruption.id in disruptionMarkers) {
+            const marker = disruptionMarkers[disruption.id].marker;
+            const circle = disruptionMarkers[disruption.id].circle;
+
+            if (disruption._resolved) {
+                circle.setStyle({
+                    fillOpacity: 0.2,
+                    opacity: 0.5,
+                    dashArray: "5, 10",
+                    color: "#777777",
+                    fillColor: "#777777"
+                });
+
+                marker.bindPopup(createDisruptionPopup(disruption, false, true));
+            } else if (disruption._wasActive) {
+                circle.setStyle({
+                    fillOpacity: 0.6 * disruption.severity,
+                    opacity: 0.9,
+                    dashArray: null,
+                    color: getDisruptionColor(disruption.type),
+                    fillColor: getDisruptionColor(disruption.type)
+                });
+
+                marker.bindPopup(createDisruptionPopup(disruption, true));
+            } else {
+                circle.setStyle({
+                    fillOpacity: 0.3,
+                    opacity: 0.6,
+                    dashArray: "5, 10",
+                    color: "#777777",
+                    fillColor: "#777777"
+                });
+
+                marker.bindPopup(createDisruptionPopup(disruption, false));
+            }
+        }
+
+        if (disruption._wasActive && !previouslyActive[index]) {
+            disruption._activationTime = simulationTime;
+            console.log(`Disruption ${disruption.id} activated at ${simulationTime}`);
+        }
+    });
+}
+
+
 function updateSimulation() {
     try {
         if (!simulationRunning) return;
 
         const now = Date.now();
-
         const realElapsedSeconds = (now - lastClockUpdateTime) / 1000;
         lastClockUpdateTime = now;
 
         const simulationTimeIncrement = realElapsedSeconds * simulationSpeed;
         simulationTime += simulationTimeIncrement;
 
+        checkPendingDeliveries();
+
+        if (window.simInterface) {
+            window.simInterface.handleEvent(JSON.stringify({
+                type: 'simulation_time_updated',
+                data: {
+                    current_time: simulationTime
+                }
+            }));
+        }
+
         if (disruptionsEnabled && typeof updateDisruptionVisibility === 'function') {
             updateDisruptionVisibility(simulationTime);
+        }
+
+        if (typeof updateDisruptionStatus === 'function') {
+            updateDisruptionStatus(simulationTime);
         }
 
         let allComplete = true;
@@ -374,21 +446,29 @@ function updateSimulation() {
 
                 allComplete = false;
 
-                // Calculate how much this driver is affected by nearby disruptions
+                if (driver.id && (!driver._lastActionCheck || now - driver._lastActionCheck > 500)) {
+                    driver._lastActionCheck = now;
+                    if (typeof checkDriverActions === 'function') {
+                        try {
+                            checkDriverActions(driver);
+                        } catch (e) {
+                            console.error("Error checking actions:", e);
+                        }
+                    }
+                }
+
+                checkDriverNearDisruptions(driver);
+
                 const delayFactor = getDriverDelayFactor(driver);
 
-                // Update visual indicator on driver icon based on delay
                 updateDriverDisruptionIndicator(driver, delayFactor);
 
-                // Apply delay factor to reduce speed when in disruption zones
                 driver.elapsedOnSegment += cappedElapsed * simulationSpeed * delayFactor;
 
                 let segmentTime = 10;
                 if (driver.travelTimes && driver.travelTimes.length > driver.currentIndex) {
                     segmentTime = driver.travelTimes[driver.currentIndex];
-
                     if (segmentTime <= 0) {
-                        console.warn(`Driver ${driver.id}, segment ${driver.currentIndex}: Invalid segmentTime ${segmentTime}. Using fallback.`);
                         segmentTime = 10;
                     }
                 }
@@ -401,41 +481,45 @@ function updateSimulation() {
                     driver.elapsedOnSegment = 0;
 
                     if (driver.currentIndex >= driver.path.length - 1) {
-                        driver.isActive = false; // Mark as inactive
-                        driver.marker.setLatLng(driver.path[driver.path.length - 1]); // Snap to exact end
-                        console.log(`Driver ${driver.id} finished at simulation time: ${formatTimeHMS(simulationTime)}`);
-                        // Don't return yet, let the allComplete check handle stopping
+                        driver.isActive = false;
+                        driver.marker.setLatLng(driver.path[driver.path.length - 1]);
                     } else {
-                        // Still active, snap to the start of the new segment
                         driver.marker.setLatLng(driver.path[driver.currentIndex]);
                     }
-
                 } else if (driver.currentIndex < driver.path.length - 1) {
-                    // Interpolate position on the current segment
                     const startPoint = driver.path[driver.currentIndex];
                     const endPoint = driver.path[driver.currentIndex + 1];
                     const newLat = startPoint[0] + (endPoint[0] - startPoint[0]) * progress;
                     const newLng = startPoint[1] + (endPoint[1] - startPoint[1]) * progress;
-                    driver.marker.setLatLng([newLat, newLng]);
+                    const newPosition = [newLat, newLng];
+                    driver.marker.setLatLng(newPosition);
+
+                    if (window.simInterface) {
+                        window.simInterface.handleEvent(JSON.stringify({
+                            type: 'driver_position_updated',
+                            data: {
+                                driver_id: driver.id,
+                                lat: newLat,
+                                lon: newLng
+                            }
+                        }));
+                    }
                 }
 
-                if (driver.isActive && // Only trigger if still active
+                if (driver.isActive &&
                     driver.deliveryIndices &&
                     driver.deliveryIndices.includes(driver.currentIndex) &&
                     !driver.visited.includes(driver.currentIndex)) {
-                    triggerDeliveryAnimation(driver, driver.currentIndex, simulationTime); // Pass simulationTime
+                    triggerDeliveryAnimation(driver, driver.currentIndex, simulationTime);
                 }
             } catch (driverError) {
-                console.error(`Error updating driver ${driver.id}:`, driverError, driverError.stack);
+                console.error(`Error updating driver ${driver.id}:`, driverError);
             }
         });
 
         updateClock();
 
         if (allComplete) {
-            console.log("All drivers completed their routes");
-            console.log("Final time:", formatTimeHMS(simulationTime));
-
             stopSimulation();
         }
     } catch (error) {
@@ -449,76 +533,60 @@ function updateSimulation() {
 }
 
 function updateDriverDisruptionIndicator(driver, delayFactor) {
-    // Don't update if driver isn't active
     if (!driver.isActive) return;
 
-    // Driver is significantly affected if moving less than 90% of normal speed
-    const isAffected = delayFactor < 0.9;
+    const isAffected = delayFactor < 0.7;
 
-    // Only update the icon if the affected status has changed
     if (isAffected !== driver.isDisrupted) {
-        // Add warning symbol to affected drivers
-        const warningSymbol = isAffected ? "⚠️" : "";
+        let iconHtml;
 
-        const iconDiv = new L.DivIcon({
-            className: 'driver-marker',
-            html: `<div style="background-color:${driver.color}">${driver.id}${warningSymbol}</div>`,
-            iconSize: [24, 24]
-        });
-
-        driver.marker.setIcon(iconDiv);
-        driver.isDisrupted = isAffected;
-
-        // Show a popup explaining the slowdown when a driver becomes affected
         if (isAffected) {
             const slowdownPct = Math.round((1 - delayFactor) * 100);
+            iconHtml = `<div style="background-color:${driver.color}; position: relative;">
+                            ${driver.id}
+                            <span style="position: absolute; top: -10px; right: -10px; font-size: 12px;">⚠️</span>
+                        </div>`;
+
             driver.marker.bindPopup(`Driver ${driver.id} slowed by ${slowdownPct}%`).openPopup();
 
-            // Close the popup after 2 seconds
             setTimeout(() => {
                 if (driver.marker) {
                     driver.marker.closePopup();
                 }
             }, 2000);
+        } else {
+            iconHtml = `<div style="background-color:${driver.color}">${driver.id}</div>`;
         }
+
+        const iconDiv = new L.DivIcon({
+            className: 'driver-marker',
+            html: iconHtml,
+            iconSize: [24, 24]
+        });
+
+        driver.marker.setIcon(iconDiv);
+        driver.isDisrupted = isAffected;
     }
-}
-
-function calculateDriverProgress(driver) {
-    if (!driver.isActive) return 1.0;
-
-    const totalExpectedTime = driver.expectedTravelTime || 1;
-
-    let currentCompletedTime = driver.completedDistance;
-
-    if (driver.currentIndex < driver.path.length - 1 && driver.travelTimes.length > driver.currentIndex) {
-        const segmentTime = driver.travelTimes[driver.currentIndex];
-        const progress = driver.elapsedOnSegment / segmentTime;
-        currentCompletedTime += segmentTime * progress;
-    }
-
-    return Math.min(currentCompletedTime / totalExpectedTime, 1.0);
-}
-
-function setTimeSmoothing(enabled) {
-    timeSmoothing = enabled;
-    console.log("Time smoothing:", enabled);
 }
 
 function triggerDeliveryAnimation(driver, pointIndex) {
     const deliveryPoint = driver.path[pointIndex];
 
-    // Check if there's an active recipient unavailable disruption at this point
-    const isRecipientUnavailable = checkForRecipientUnavailable(deliveryPoint, currentSimulationTime);
+    const wasRerouted = driver.recentlyRerouted && driver.recentlyRerouted.includes(pointIndex);
+
+    const isRecipientUnavailable = !wasRerouted &&
+        checkForRecipientUnavailable(deliveryPoint, currentSimulationTime);
 
     if (isRecipientUnavailable) {
-        // Don't mark as visited - will try again later
         showDeliveryFailure(driver, deliveryPoint);
         return false;
     }
 
-    // Regular delivery process
     driver.visited.push(pointIndex);
+
+    if (wasRerouted) {
+        driver.recentlyRerouted = driver.recentlyRerouted.filter(idx => idx !== pointIndex);
+    }
 
     const pulseCircle = L.circleMarker(deliveryPoint, {
         radius: 15,
@@ -552,58 +620,44 @@ function triggerDeliveryAnimation(driver, pointIndex) {
 
     setTimeout(() => {
         clearInterval(pulseAnimation);
-        if (tempPopup._map) { // Check if popup still exists
+        if (tempPopup._map) {
             map.closePopup(tempPopup);
         }
-        if (pulseCircle._map) { // Check if circle still exists
-            layers.drivers.removeLayer(pulseCircle); // Or remove from its dedicated layer
+        if (pulseCircle._map) {
+            layers.drivers.removeLayer(pulseCircle);
         }
 
-        // Optional: Add a permanent marker indicating delivery completion
         L.circleMarker(deliveryPoint, {
             radius: 8,
             color: driver.color,
-            fillColor: '#ffffff', // White fill to indicate completed
+            fillColor: '#ffffff',
             fillOpacity: 1,
             weight: 3
-        }).addTo(layers.drivers); // Add to drivers layer or 'completed' layer
+        }).addTo(layers.drivers);
 
-    }, 1500); // Duration of animation + popup
+    }, 1500);
 
-    return true; // Indicate delivery successful
+    return true;
 }
 
-
-function distanceBetween(p1, p2) {
-    const lat1 = p1[0];
-    const lon1 = p1[1];
-    const lat2 = p2[0];
-    const lon2 = p2[1];
-
-    return Math.sqrt(Math.pow(lat2 - lat1, 2) + Math.pow(lon2 - lon1, 2));
-}
 
 function checkForRecipientUnavailable(point) {
-    // Only check if we have disruptions enabled
     if (!disruptionsEnabled || !activeDisruptions || !activeDisruptions.length)
         return false;
 
     const pointLatLng = L.latLng(point[0], point[1]);
 
     for (const disruption of activeDisruptions) {
-        // Skip if not active AT THE GIVEN TIME or not recipient unavailable type
-        if (disruption.start_time > currentSimulationTime || // Check start time
-            (disruption.start_time + disruption.duration) < currentSimulationTime || // Check end time
+        if (disruption.start_time > currentSimulationTime ||
+            (disruption.start_time + disruption.duration) < currentSimulationTime ||
             disruption.type !== 'recipient_unavailable')
             continue;
 
-        // Check if this disruption is at the specific delivery point location
         const disruptionPos = L.latLng(
             disruption.location.lat,
             disruption.location.lng
         );
 
-        // Use a small threshold (e.g., 5 meters) to consider it the same location
         const distance = pointLatLng.distanceTo(disruptionPos);
         if (distance < 5) { // Is the disruption located *at* the delivery point?
             // Check if this specific delivery point index matches metadata, if available
@@ -612,15 +666,14 @@ function checkForRecipientUnavailable(point) {
             //      Need a way to map 'point' back to its original index here... complex.
             //      For now, location match is sufficient.
             // }
-            return true; // Found an active recipient unavailable disruption at this location and time
+            return true;
         }
     }
 
-    return false; // No matching disruption found
+    return false;
 }
 
 function showDeliveryFailure(driver, deliveryPoint) {
-    // Create a red X marker for failed delivery
     const failMarker = L.divIcon({
         html: '<div style="color:red; font-size:20px; font-weight:bold;">✕</div>',
         className: 'delivery-fail-marker',
@@ -631,13 +684,11 @@ function showDeliveryFailure(driver, deliveryPoint) {
     const marker = L.marker(deliveryPoint, {icon: failMarker})
         .addTo(layers.drivers);
 
-    // Show failure popup
     let popup = L.popup()
         .setLatLng(deliveryPoint)
         .setContent(`<div style="text-align:center"><strong>Driver ${driver.id}</strong><br>❌ Recipient not available! ❌<br>Delivery failed.</div>`)
         .openOn(map);
 
-    // Remove after 2 seconds
     setTimeout(() => {
         map.closePopup(popup);
         layers.drivers.removeLayer(marker);

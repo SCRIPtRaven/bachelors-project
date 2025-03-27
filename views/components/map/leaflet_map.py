@@ -41,27 +41,19 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
 
         template_dir = RESOURCES_DIR / 'templates'
 
-        # Copy map.js
-        js_template_path = os.path.join(template_dir, "map.js")
-        js_output_path = os.path.join(os.path.dirname(MAP_HTML), "map.js")
+        js_files = ["map.js", "disruptions.js", "simulation_actions.js"]
+        output_dir = os.path.dirname(MAP_HTML)
 
-        with open(js_template_path, "r", encoding="utf-8") as f:
-            js_content = f.read()
+        for js_file in js_files:
+            template_path = os.path.join(template_dir, js_file)
+            output_path = os.path.join(output_dir, js_file)
 
-        with open(js_output_path, "w", encoding="utf-8") as f:
-            f.write(js_content)
+            with open(template_path, "r", encoding="utf-8") as f:
+                js_content = f.read()
 
-        # Copy disruptions.js
-        disruptions_template_path = os.path.join(template_dir, "disruptions.js")
-        disruptions_output_path = os.path.join(os.path.dirname(MAP_HTML), "disruptions.js")
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(js_content)
 
-        with open(disruptions_template_path, "r", encoding="utf-8") as f:
-            disruptions_content = f.read()
-
-        with open(disruptions_output_path, "w", encoding="utf-8") as f:
-            f.write(disruptions_content)
-
-        # Continue with HTML template processing
         html_template_path = os.path.join(template_dir, "map_template.html")
         with open(html_template_path, "r", encoding="utf-8") as f:
             html_content = f.read()
@@ -83,7 +75,6 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
     def _on_load_finished(self, ok):
         """Called when the HTML page has finished loading"""
         if ok:
-            # Wait a moment for JavaScript to initialize
             QtCore.QTimer.singleShot(500, lambda: self.map_ready.emit())
             self.load_completed.emit(True, "Map loaded successfully")
         else:
@@ -111,12 +102,9 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         disruption_data = []
 
         for disruption in disruptions:
-            # Check if we received a dictionary or an object
             if isinstance(disruption, dict):
-                # Already in dictionary format, use as-is
                 data = disruption
             else:
-                # It's a Disruption object, extract the properties
                 data = {
                     'id': disruption.id,
                     'type': disruption.type.value,
@@ -125,8 +113,6 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
                         'lng': disruption.location[1]
                     },
                     'radius': disruption.affected_area_radius,
-                    'start_time': disruption.start_time,
-                    'duration': disruption.duration,
                     'severity': disruption.severity,
                     'description': disruption.metadata.get('description',
                                                            f"{disruption.type.value.replace('_', ' ').title()}")
