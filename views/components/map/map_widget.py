@@ -1,5 +1,6 @@
 from PyQt5 import QtCore, QtWidgets
 
+from models.rl.js_interface import SimulationJsInterface
 from utils.geo_utils import get_city_coordinates
 from utils.visualization import VisualizationQueue
 from viewmodels.delivery_viewmodel import DeliveryViewModel
@@ -17,6 +18,9 @@ class MapWidget(LeafletMapWidget):
         super().__init__(parent)
 
         self.messenger = Messenger()
+
+        self.js_interface = SimulationJsInterface()
+        self.channel.registerObject("simInterface", self.js_interface)
 
         self.delivery_viewmodel = DeliveryViewModel(messenger=self.messenger)
         self.driver_viewmodel = DriverViewModel(messenger=self.messenger)
@@ -61,6 +65,13 @@ class MapWidget(LeafletMapWidget):
         self.visualization_queue = VisualizationQueue(self.optimization_viewmodel)
         self.driver_viewmodel.set_visualization_queue(self.visualization_queue)
 
+        self.js_interface.disruption_activated.connect(self.handle_js_disruption_activated)
+        self.js_interface.disruption_resolved.connect(self.handle_js_disruption_resolved)
+        self.js_interface.driver_position_updated.connect(self.handle_js_driver_position)
+        self.js_interface.delivery_completed.connect(self.handle_js_delivery_completed)
+        self.js_interface.delivery_failed.connect(self.handle_js_delivery_failed)
+        self.js_interface.simulation_time_updated.connect(self.handle_js_simulation_time)
+
         self.driver_labels = {}
         self._selected_driver_id = None
 
@@ -78,6 +89,69 @@ class MapWidget(LeafletMapWidget):
                 f"Skipped {skipped} inaccessible points.",
                 "information"
             )
+
+    def handle_js_disruption_activated(self, disruption_id):
+        """Handle disruption activation from JavaScript"""
+        if self.messenger:
+            self.messenger.send(MessageType.DISRUPTION_ACTIVATED, {
+                'disruption_id': disruption_id
+            })
+
+    def handle_js_disruption_resolved(self, disruption_id):
+        """Handle disruption resolution from JavaScript"""
+        if self.messenger:
+            self.messenger.send(MessageType.DISRUPTION_RESOLVED, {
+                'disruption_id': disruption_id
+            })
+
+    def handle_js_driver_position(self, driver_id, lat, lon):
+        """Handle driver position updates from JavaScript"""
+        # Pass to disruption viewmodel if available
+        if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
+            if hasattr(self.disruption_viewmodel,
+                       'simulation_controller') and self.disruption_viewmodel.simulation_controller:
+                self.disruption_viewmodel.simulation_controller.driver_positions[driver_id] = (lat, lon)
+
+    def handle_js_delivery_completed(self, driver_id, delivery_index):
+        """Handle delivery completion from JavaScript"""
+        if self.messenger:
+            self.messenger.send(MessageType.DELIVERY_COMPLETED, {
+                'driver_id': driver_id,
+                'delivery_index': delivery_index
+            })
+
+        # Update the simulation controller if available
+        if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
+            if hasattr(self.disruption_viewmodel,
+                       'simulation_controller') and self.disruption_viewmodel.simulation_controller:
+                self.disruption_viewmodel.simulation_controller.completed_deliveries.add(delivery_index)
+
+    def handle_js_delivery_failed(self, driver_id, delivery_index):
+        """Handle delivery failure from JavaScript"""
+        if self.messenger:
+            self.messenger.send(MessageType.DELIVERY_FAILED, {
+                'driver_id': driver_id,
+                'delivery_index': delivery_index
+            })
+
+        # Update the simulation controller if available
+        if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
+            if hasattr(self.disruption_viewmodel,
+                       'simulation_controller') and self.disruption_viewmodel.simulation_controller:
+                self.disruption_viewmodel.simulation_controller.skipped_deliveries.add(delivery_index)
+
+    def handle_js_simulation_time(self, simulation_time):
+        """Handle simulation time updates from JavaScript"""
+        if self.messenger:
+            self.messenger.send(MessageType.SIMULATION_TIME_UPDATED, {
+                'simulation_time': simulation_time
+            })
+
+        # Update the simulation controller if available
+        if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
+            if hasattr(self.disruption_viewmodel,
+                       'simulation_controller') and self.disruption_viewmodel.simulation_controller:
+                self.disruption_viewmodel.simulation_controller.simulation_time = simulation_time
 
     def update_visualization(self, solution, unassigned_deliveries=None):
         """Handle visualization updates from the OptimizationViewModel"""
@@ -237,8 +311,6 @@ class MapWidget(LeafletMapWidget):
             self.G = graph
             self.current_city = city_name
 
-            self.delivery_viewmodel.set_graph(graph)
-
             self.messenger.send(MessageType.GRAPH_LOADED, {
                 'graph': graph,
                 'city_name': city_name
@@ -345,6 +417,11 @@ class MapWidget(LeafletMapWidget):
             print("Error: OptimizationViewModel does not have run_simulation method.")
             self.show_message("Error", "Simulation functionality not available.", "critical")
             return
+
+        # Add this block to connect the JS interface to the simulation controller
+        if hasattr(self.disruption_viewmodel, 'simulation_controller'):
+            self.js_interface.set_simulation_controller(self.disruption_viewmodel.simulation_controller)
+            print("Connected JS interface to simulation controller")
 
         # Continue with optimization viewmodel's run_simulation
         self.optimization_viewmodel.run_simulation()

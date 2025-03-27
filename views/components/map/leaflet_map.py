@@ -61,6 +61,15 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         with open(disruptions_output_path, "w", encoding="utf-8") as f:
             f.write(disruptions_content)
 
+        sim_actions_template_path = os.path.join(template_dir, "simulation_actions.js")
+        sim_actions_output_path = os.path.join(os.path.dirname(MAP_HTML), "simulation_actions.js")
+
+        with open(sim_actions_template_path, "r", encoding="utf-8") as f:
+            sim_actions_content = f.read()
+
+        with open(sim_actions_output_path, "w", encoding="utf-8") as f:
+            f.write(sim_actions_content)
+
         # Continue with HTML template processing
         html_template_path = os.path.join(template_dir, "map_template.html")
         with open(html_template_path, "r", encoding="utf-8") as f:
