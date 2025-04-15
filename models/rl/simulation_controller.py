@@ -19,7 +19,6 @@ class SimulationController(QtCore.QObject):
     Handles state management, action execution, and communication with the UI.
     """
     route_update_available = QtCore.pyqtSignal()
-    route_recalculated = QtCore.pyqtSignal(object)
     deliveries_reassigned = QtCore.pyqtSignal(int, int, list)
     delivery_skipped = QtCore.pyqtSignal(int, int)
     wait_added = QtCore.pyqtSignal(int, float)
@@ -243,8 +242,6 @@ class SimulationController(QtCore.QObject):
 
         all_drivers = [d.id for d in self.drivers]
         routes_drivers = list(self.driver_routes.keys())
-        print(f"Drivers: {all_drivers}")
-        print(f"Routes: {routes_drivers}")
         missing = [d for d in all_drivers if d not in routes_drivers]
         if missing:
             print(f"WARNING: Missing routes for drivers: {missing}")
@@ -292,8 +289,6 @@ class SimulationController(QtCore.QObject):
                     self.driver_routes[driver_id] = route_details
                 except Exception as e:
                     print(f"Error calculating route for driver {driver_id}: {e}")
-
-        print(f"Route initialization complete. Routes for drivers: {list(self.driver_routes.keys())}")
 
         self.original_estimated_time = self._calculate_total_time()
         self.current_estimated_time = self.original_estimated_time
@@ -823,84 +818,6 @@ class SimulationController(QtCore.QObject):
             if actions:
                 self.action_count += len(actions)
 
-    def reorder_deliveries(self, driver_id: int, new_order: List[int]) -> bool:
-        try:
-            assignment = None
-            for a in self.current_solution:
-                if a.driver_id == driver_id:
-                    assignment = a
-                    break
-
-            if not assignment:
-                return False
-
-            if not isinstance(new_order, list) or not new_order:
-                return False
-
-            if not all(isinstance(idx, int) for idx in new_order):
-                return False
-
-            for idx in new_order:
-                if idx not in assignment.delivery_indices:
-                    return False
-
-            assignment.delivery_indices = new_order.copy()
-
-            try:
-                self.driver_routes[driver_id] = self._calculate_route_details(assignment)
-            except Exception as e:
-                print(f"Error recalculating route: {e}")
-                self.driver_routes[driver_id] = {
-                    'points': [self.warehouse_location, self.warehouse_location],
-                    'times': [0],
-                    'delivery_indices': [],
-                    'segments': [],
-                    'assignment': assignment
-                }
-
-            try:
-                self.current_estimated_time = self._calculate_total_time()
-            except Exception as e:
-                print(f"Error calculating time: {e}")
-            try:
-                if driver_id in self.driver_routes and 'points' in self.driver_routes[driver_id]:
-                    new_route_points = self.driver_routes[driver_id]['points']
-
-                    if new_route_points and isinstance(new_route_points, list) and len(new_route_points) >= 2:
-                        route_string = ";".join([f"{lat:.6f},{lon:.6f}" for lat, lon in new_route_points])
-
-                        if self.route_update_queue is not None:
-                            update_data = (driver_id, route_string)
-                            self.route_update_queue.put(update_data)
-                            print(f"SimController(reorder): Put route update for driver {driver_id} in queue.")
-                            self.route_update_available.emit()
-                            print(f"SimController(reorder): Emitted route_update_available signal.")
-                        else:
-                            print("SimController(reorder): Error - Route update queue is not set.")
-
-                    elif not new_route_points or len(new_route_points) < 2:
-                        print(
-                            f"SimController(reorder): Warning - Calculated route for driver {driver_id} has too few points ({len(new_route_points)}), not queuing update.")
-                    else:
-                        print(
-                            f"SimController(reorder): Warning - Invalid points data type ({type(new_route_points)}) for driver {driver_id}, not queuing update.")
-                else:
-                    print(
-                        f"SimController(reorder): Warning - Missing route data after recalculation for driver {driver_id}, not queuing update.")
-
-            except Exception as e:
-                print(f"SimController(reorder): Error queuing route update: {e}")
-                import traceback
-                traceback.print_exc()
-
-            self.action_log.emit(f"Reordered deliveries for Driver {driver_id}")
-
-            return True
-
-        except Exception as e:
-            print(f"Error in reorder_deliveries: {e}")
-            return False
-
     def handle_disruption(self, disruption: Disruption) -> List[DisruptionAction]:
         try:
             if not self.resolver:
@@ -975,7 +892,6 @@ class SimulationController(QtCore.QObject):
         result = []
         for action in actions:
             action_dict = action.to_dict()
-            print(f"Action dict: {action_dict.keys()}")
             result.append(action_dict)
 
         if driver_id in self.pending_actions:

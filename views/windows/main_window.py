@@ -10,13 +10,29 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Kaunas Route Planner")
-        self.setFixedSize(1600, 1000)
+        self.setWindowTitle("City Route Planner")
+
+        screen = QtWidgets.QApplication.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+
+        width = int(screen_geometry.width() * 0.9)
+        height = int(screen_geometry.height() * 0.9)
+        self.resize(width, height)
+
+        self.move(
+            (screen_geometry.width() - width) // 2,
+            (screen_geometry.height() - height) // 2
+        )
+
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding
+        )
+
+        self.setMinimumSize(800, 600)
 
         self.init_widgets()
-
         self.init_layout()
-
         self.connect_signals()
 
         self.action_log_dialog = ActionLogDialog(self)
@@ -26,6 +42,11 @@ class MainWindow(QWidget):
         """Initialize all widgets but keep them hidden initially"""
         self.map_widget = MapWidget(self)
         self.map_widget.hide()
+
+        self.map_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding
+        )
 
         self.stats_widget = QWidget()
         self.stats_layout = QVBoxLayout(self.stats_widget)

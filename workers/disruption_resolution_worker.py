@@ -46,7 +46,7 @@ class DisruptionResolutionWorker(QtCore.QObject):
                     "action"
                 )
 
-            action_copies = [self._create_action_copy(action) for action in actions]
+            action_copies = [self._manual_copy_action(action) for action in actions]
             self.resolution_complete.emit(action_copies)
 
         except Exception as e:
@@ -57,25 +57,10 @@ class DisruptionResolutionWorker(QtCore.QObject):
             traceback.print_exc()
             self.resolution_complete.emit([])
 
-    def _create_action_copy(self, action):
-        """Create a safe copy of an action using the action's own serialization methods"""
-        return self._manual_copy_action(action)
-        '''
-        try:
-            if hasattr(action, 'to_dict'):
-                action_dict = action.to_dict()
-                return DisruptionAction.from_dict(action_dict)
-            else:
-                return self._manual_copy_action(action)
-        except Exception as e:
-            print(f"Error copying action: {e}")
-            return action
-        '''
-
     def _manual_copy_action(self, action):
         """Manually copy an action based on its type"""
         from models.rl.actions import RerouteAction, ReassignDeliveriesAction, WaitAction
-        from models.rl.actions import SkipDeliveryAction, PrioritizeDeliveryAction, NoAction
+        from models.rl.actions import SkipDeliveryAction
         from models.rl.actions import RecipientUnavailableAction
 
         if isinstance(action, RerouteAction):
@@ -105,11 +90,6 @@ class DisruptionResolutionWorker(QtCore.QObject):
                 driver_id=action.driver_id,
                 delivery_index=action.delivery_index
             )
-        elif isinstance(action, PrioritizeDeliveryAction):
-            return PrioritizeDeliveryAction(
-                driver_id=action.driver_id,
-                delivery_indices=list(action.delivery_indices) if action.delivery_indices else []
-            )
         elif isinstance(action, RecipientUnavailableAction):
             return RecipientUnavailableAction(
                 driver_id=action.driver_id,
@@ -117,8 +97,6 @@ class DisruptionResolutionWorker(QtCore.QObject):
                 disruption_id=action.disruption_id,
                 duration=action.duration
             )
-        elif isinstance(action, NoAction):
-            return NoAction()
         else:
             print(f"Unknown action type: {type(action).__name__}")
             return action

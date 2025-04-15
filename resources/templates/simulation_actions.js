@@ -397,39 +397,6 @@ function handleRerouteAction(driver, action) {
     showActionFeedback(driver, '↩️ ROUTE UPDATED', '#000');
 }
 
-function handleWaitAction(driver, action) {
-    const wasActive = driver.isActive;
-    driver.isActive = false;
-
-    const minutes = Math.round(action.wait_time / 60);
-    showActionFeedback(driver, `Waiting ${minutes} minutes`, 'orange');
-
-    const simulationWaitTime = action.wait_time / simulationSpeed;
-    setTimeout(() => {
-        if (wasActive && simulationRunning) {
-            driver.isActive = true;
-            showActionFeedback(driver, 'Resuming', 'green');
-        }
-    }, simulationWaitTime * 1000);
-}
-
-function handleSkipDeliveryAction(driver, action) {
-    const deliveryIndex = action.delivery_index;
-
-    if (!driver.skipped) driver.skipped = [];
-    driver.skipped.push(deliveryIndex);
-
-    showActionFeedback(driver, 'Skipping Delivery', 'red');
-
-    notifyDeliveryFailed(driver, deliveryIndex);
-}
-
-function handlePriorityAction(driver, action) {
-    // This would reorder the driver's delivery sequence
-    // For now just show visual feedback
-    showActionFeedback(driver, 'Delivery Order Changed', 'purple');
-}
-
 function showActionFeedback(driver, message, color) {
     const position = driver.marker.getLatLng();
 
@@ -446,22 +413,6 @@ function showActionFeedback(driver, message, color) {
     setTimeout(() => {
         map.closePopup(popup);
     }, 3000);
-}
-
-// Why is this unused??
-function notifyDriverPositionUpdate(driver) {
-    if (!window.simInterface) return;
-
-    const position = driver.marker.getLatLng();
-
-    window.simInterface.handleEvent(JSON.stringify({
-        type: 'driver_position_updated',
-        data: {
-            driver_id: driver.id,
-            lat: position.lat,
-            lon: position.lng
-        }
-    }));
 }
 
 function checkPendingDeliveries() {
@@ -526,19 +477,6 @@ function handleRecipientAvailable(driver, deliveryIndex, disruptionId) {
     }
 }
 
-
-function notifyDeliveryFailed(driver, deliveryIndex) {
-    if (!window.simInterface) return;
-
-    window.simInterface.handleEvent(JSON.stringify({
-        type: 'delivery_failed',
-        data: {
-            driver_id: driver.id,
-            delivery_index: deliveryIndex
-        }
-    }));
-}
-
 function notifyDisruptionActivated(disruption) {
     if (processedDisruptionIds.has(disruption.id)) {
         return;
@@ -560,34 +498,6 @@ function notifyDisruptionActivated(disruption) {
             disruption_id: disruption.id
         }
     }));
-}
-
-// Why is this unused??
-function pauseSimulation() {
-    if (!simulationRunning) return;
-
-    currentSimulationPaused = true;
-
-    if (window.simInterface) {
-        window.simInterface.handleEvent(JSON.stringify({
-            type: 'simulation_paused',
-            data: {}
-        }));
-    }
-}
-
-// Why is this unused??
-function resumeSimulation() {
-    if (!simulationRunning || !currentSimulationPaused) return;
-
-    currentSimulationPaused = false;
-
-    if (window.simInterface) {
-        window.simInterface.handleEvent(JSON.stringify({
-            type: 'simulation_resumed',
-            data: {}
-        }));
-    }
 }
 
 document.addEventListener('DOMContentLoaded', function () {

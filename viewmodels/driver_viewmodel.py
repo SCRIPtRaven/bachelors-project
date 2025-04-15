@@ -1,3 +1,5 @@
+import time
+
 from PyQt5 import QtCore
 
 from models.services.geolocation import GeolocationService
@@ -77,7 +79,8 @@ class DriverViewModel(QtCore.QObject):
 
         if self.messenger:
             self.messenger.send(MessageType.DRIVER_SELECTED, {
-                'driver_id': self.selected_driver_id
+                'driver_id': self.selected_driver_id,
+                'timestamp': time.time()
             })
 
     def handle_route_calculated(self, data):

@@ -65,7 +65,6 @@ class Messenger(QtCore.QObject):
 
             if len(self._subscribers[message_type]) == 1:
                 self.message_sent.connect(self._dispatch_message)
-                print(f"Messenger: Added first subscriber to {message_type}")
 
     def unsubscribe(self, message_type, callback):
         """Unsubscribe a callback from a message type"""

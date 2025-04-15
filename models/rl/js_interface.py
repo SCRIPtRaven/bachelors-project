@@ -18,7 +18,6 @@ class SimulationJsInterface(QtCore.QObject):
     simulation_resumed = QtCore.pyqtSignal()
     simulation_finished = QtCore.pyqtSignal()
     action_required = QtCore.pyqtSignal(str)
-    route_updated = QtCore.pyqtSignal(int, list)
 
     def __init__(self, simulation_controller=None):
         super().__init__()
@@ -189,11 +188,6 @@ class SimulationJsInterface(QtCore.QObject):
                     result[key] = value
             return result
         return action
-
-    @QtCore.pyqtSlot(int, list)
-    def route_updated(self, driver_id, route):
-        """Signal for route updates"""
-        pass
 
     @QtCore.pyqtSlot(str)
     def updateDriverRoute(self, route_data_str):

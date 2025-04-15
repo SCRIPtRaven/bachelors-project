@@ -81,7 +81,6 @@ class MapWidget(LeafletMapWidget):
         self._selected_driver_id = None
 
         self.is_loading = False
-        self.is_computing = False
 
     @QtCore.pyqtSlot(int)
     def handle_viewmodel_route_update_request(self, driver_id):
@@ -248,7 +247,6 @@ class MapWidget(LeafletMapWidget):
 
     def handle_disruptions_generated(self, disruptions):
         """Handle generated disruptions"""
-        print(f"Generated {len(disruptions)} disruptions for simulation")
 
     def handle_disruption_activated(self, disruption):
         """Handle disruption activation"""
@@ -261,10 +259,6 @@ class MapWidget(LeafletMapWidget):
     def load_disruptions(self, disruptions):
         """Load disruptions onto the map"""
         super().load_disruptions(disruptions)
-
-    def toggle_disruptions(self, enabled):
-        """Toggle disruptions on/off"""
-        super().toggle_disruptions(enabled)
 
     def handle_warehouse_location_changed(self, location):
         """Handle warehouse location updates"""

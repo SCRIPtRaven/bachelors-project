@@ -122,11 +122,6 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         js_code = f"if (typeof loadDisruptions === 'function') {{ loadDisruptions({json.dumps(disruption_data)}); }}"
         self.execute_js(js_code)
 
-    def toggle_disruptions(self, enabled):
-        """Toggle disruption visibility"""
-        js_code = f"if (typeof toggleDisruptions === 'function') {{ toggleDisruptions({str(enabled).lower()}); }}"
-        self.execute_js(js_code)
-
     def clear_layer(self, layer_name):
         """Clear a specific layer"""
         if layer_name not in self.layers:

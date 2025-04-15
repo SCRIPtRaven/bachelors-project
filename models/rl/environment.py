@@ -230,10 +230,6 @@ class DeliveryEnvironment(gym.Env):
             driver_id = action_id
             return self._create_reroute_action(driver_id)
 
-        if max_drivers + 1 <= action_id <= max_drivers * 2:
-            driver_id = action_id - max_drivers
-            return self._create_reassign_action(driver_id)
-
         if max_drivers * 2 + 1 <= action_id <= max_drivers * 3:
             driver_id = action_id - (max_drivers * 2)
 
@@ -288,37 +284,6 @@ class DeliveryEnvironment(gym.Env):
         )
 
         return reroute_action
-
-    def _create_reassign_action(self, from_driver_id: int) -> Optional[ReassignDeliveriesAction]:
-        """
-        Create a reassign action for deliveries from a driver
-
-        Args:
-            from_driver_id: ID of the driver to reassign from
-
-        Returns:
-            ReassignDeliveriesAction object or None
-        """
-        from_assignment = None
-        for a in self.simulation_controller.current_solution:
-            if a.driver_id == from_driver_id:
-                from_assignment = a
-                break
-
-        if not from_assignment or not from_assignment.delivery_indices:
-            return None
-
-        from models.rl.rule_based_resolver import RuleBasedResolver
-
-        resolver = RuleBasedResolver(self.graph, self.warehouse_location)
-        reassignment_actions = resolver._create_reassignment_actions(
-            from_driver_id,
-            self.current_state
-        )
-
-        if reassignment_actions:
-            return reassignment_actions[0]
-        return None
 
     def _create_wait_action(self, driver_id: int, wait_time: float) -> Optional[DisruptionAction]:
         """
@@ -485,7 +450,6 @@ class DeliveryEnvironment(gym.Env):
             elif action.action_type == ActionType.SKIP_DELIVERY:
                 reward += 0.0
 
-        time_now = self.simulation_controller.simulation_time
         time_estimate_before = self.simulation_controller.current_estimated_time
         time_estimate_after = self.simulation_controller.current_estimated_time
 
@@ -499,7 +463,6 @@ class DeliveryEnvironment(gym.Env):
         deliveries_skipped = len(self.simulation_controller.skipped_deliveries)
 
         total_deliveries = sum(len(a.delivery_indices) for a in self.simulation_controller.current_solution)
-        progress = (deliveries_completed + deliveries_skipped) / max(1, total_deliveries)
 
         completion_weight = 0.8
         skip_weight = 0.2

@@ -79,6 +79,9 @@ class DisruptionService:
         metadata = {}
         affected_driver_ids = set()
 
+        max_attempts = 30
+        min_buffer_distance = 50
+
         if disruption_type == DisruptionType.RECIPIENT_UNAVAILABLE:
             if not self.snapped_delivery_points:
                 print("Warning: Cannot create RECIPIENT_UNAVAILABLE disruption, no delivery points available.")
@@ -95,31 +98,66 @@ class DisruptionService:
                 "description": f"Recipient unavailable at Delivery {point_idx + 1}"
             }
 
-        elif disruption_type == DisruptionType.TRAFFIC_JAM:
+
+        elif disruption_type in [DisruptionType.TRAFFIC_JAM, DisruptionType.ROAD_CLOSURE]:
             if not self.detailed_route_points:
-                print("Warning: Cannot create TRAFFIC_JAM disruption, no detailed route points available.")
+                print(f"Warning: Cannot create {disruption_type.value} disruption, no detailed route points available.")
                 return None
 
-            location = random.choice(self.detailed_route_points)
-            radius = random.uniform(100, 500)
-            duration = random.randint(1800, 5400)
-            severity = random.uniform(0.3, 0.9)
-            metadata = {
-                "description": "Heavy traffic congestion"
-            }
+            if disruption_type == DisruptionType.TRAFFIC_JAM:
+                min_radius, max_radius = 80, 300
+                min_fallback_radius = 40
+                duration_range = (1800, 5400)
+                severity_range = (0.3, 0.9)
+                description = "Heavy traffic congestion"
 
-        elif disruption_type == DisruptionType.ROAD_CLOSURE:
-            if not self.detailed_route_points:
-                print("Warning: Cannot create ROAD_CLOSURE disruption, no detailed route points available.")
+            else:
+                min_radius, max_radius = 30, 150
+                min_fallback_radius = 20
+                duration_range = (3600, 14400)
+                severity_range = (0.7, 1.0)
+                description = "Road closed due to incident"
+
+            for attempt in range(max_attempts):
+                candidate_location = random.choice(self.detailed_route_points)
+                candidate_radius = random.uniform(min_radius, max_radius)
+                if (not self._disruption_covers_critical_point(candidate_location, candidate_radius) and
+                        not self._disruption_overlaps_existing(candidate_location, candidate_radius,
+                                                               min_buffer_distance)):
+                    location = candidate_location
+                    radius = candidate_radius
+                    break
+
+            if location is None:
+                print(f"Warning: Initial attempts failed for {disruption_type.value}, trying with smaller radius")
+                for attempt in range(max_attempts):
+                    candidate_location = random.choice(self.detailed_route_points)
+                    candidate_radius = random.uniform(min_fallback_radius, min_radius)
+                    if (not self._disruption_covers_critical_point(candidate_location, candidate_radius) and
+                            not self._disruption_overlaps_existing(candidate_location, candidate_radius,
+                                                                   min_buffer_distance / 2)):
+                        location = candidate_location
+                        radius = candidate_radius
+                        break
+
+            if location is None:
+                print(f"Warning: Using last resort approach for {disruption_type.value}")
+                for attempt in range(max_attempts):
+                    candidate_location = random.choice(self.detailed_route_points)
+                    candidate_radius = min_fallback_radius
+                    if not self._disruption_covers_critical_point(candidate_location, candidate_radius):
+                        location = candidate_location
+                        radius = candidate_radius
+                        print(f"Created {disruption_type.value} that may overlap with other disruptions")
+                        break
+
+            if location is None:
+                print(f"Failed to create {disruption_type.value} after {max_attempts * 3} attempts - skipping")
                 return None
 
-            location = random.choice(self.detailed_route_points)
-            radius = random.uniform(50, 250)
-            duration = random.randint(3600, 14400)
-            severity = 1.0
-            metadata = {
-                "description": "Road closed due to incident"
-            }
+            duration = random.randint(*duration_range)
+            severity = random.uniform(*severity_range)
+            metadata = {"description": description}
 
         if location is None:
             return None
@@ -138,6 +176,63 @@ class DisruptionService:
 
         return disruption
 
+    def _disruption_covers_critical_point(self, location, radius, buffer_distance=20):
+        """
+        Check if a disruption at the given location with the given radius would cover
+        any critical point (delivery points or warehouse).
+
+        Args:
+            location: (lat, lon) tuple of the disruption
+            radius: Radius of the disruption in meters
+            buffer_distance: Additional buffer distance in meters
+
+        Returns:
+            Boolean indicating if any critical point would be covered
+        """
+        effective_radius = radius + buffer_distance
+
+        if self.warehouse_location:
+            distance = self._haversine_distance(location, self.warehouse_location)
+            warehouse_buffer = buffer_distance * 2
+            if distance <= (radius + warehouse_buffer):
+                return True
+
+        if self.snapped_delivery_points:
+            for point in self.snapped_delivery_points:
+                delivery_location = point[:2]
+                distance = self._haversine_distance(location, delivery_location)
+
+                if distance <= effective_radius:
+                    return True
+
+        return False
+
+    def _disruption_overlaps_existing(self, location, radius, buffer_distance=50):
+        """
+        Check if a disruption at the given location would overlap with any existing disruptions.
+        Only considers traffic jams and road closures (not recipient unavailable).
+
+        Args:
+            location: (lat, lon) tuple of the new disruption
+            radius: Radius of the new disruption in meters
+            buffer_distance: Additional buffer distance between disruption edges
+
+        Returns:
+            Boolean indicating if the new disruption would overlap with existing ones
+        """
+        for existing in self.disruptions:
+            if existing.type == DisruptionType.RECIPIENT_UNAVAILABLE:
+                continue
+
+            min_center_distance = existing.affected_area_radius + radius + buffer_distance
+
+            actual_distance = self._haversine_distance(location, existing.location)
+
+            if actual_distance < min_center_distance:
+                return True
+
+        return False
+
     def _create_random_disruption(self):
         """Create a random disruption based on type and location constraints"""
         available_types = [t for t in DisruptionType if t.value in ENABLED_DISRUPTION_TYPES]
@@ -146,69 +241,7 @@ class DisruptionService:
             return None
         disruption_type = random.choice(available_types)
 
-        location = None
-        radius = 0
-        duration = 0
-        severity = 0.0
-        metadata = {}
-        affected_driver_ids = set()
-
-        if disruption_type == DisruptionType.RECIPIENT_UNAVAILABLE:
-            if not self.snapped_delivery_points:
-                print("Warning: Cannot create RECIPIENT_UNAVAILABLE disruption, no delivery points available.")
-                return None
-
-            point_idx = random.randint(0, len(self.snapped_delivery_points) - 1)
-            location = self.snapped_delivery_points[point_idx][:2]
-
-            radius = 5
-            duration = random.randint(360, 720)
-            severity = 1.0
-            metadata = {
-                "delivery_point_index": point_idx,
-                "description": f"Recipient unavailable at Delivery {point_idx + 1}"
-            }
-
-        elif disruption_type in [DisruptionType.TRAFFIC_JAM, DisruptionType.ROAD_CLOSURE]:
-            if not self.detailed_route_points:
-                print(f"Warning: Cannot create {disruption_type.value} disruption, no detailed route points available.")
-                return None
-
-            location = random.choice(self.detailed_route_points)
-
-            if disruption_type == DisruptionType.TRAFFIC_JAM:
-                radius = random.uniform(100, 500)
-                duration = random.randint(1800, 5400)
-                severity = random.uniform(0.3, 0.9)
-                metadata = {
-                    "description": "Heavy traffic congestion"
-                }
-            elif disruption_type == DisruptionType.ROAD_CLOSURE:
-                radius = random.uniform(50, 250)
-                duration = random.randint(3600, 14400)
-                severity = 1.0
-                metadata = {
-                    "description": "Road closed due to incident"
-                }
-        if location is None:
-            return None
-
-        duration = max(60, duration)
-
-        disruption = Disruption(
-            id=self.next_disruption_id,
-            type=disruption_type,
-            location=location,
-            affected_area_radius=radius,
-            duration=duration,
-            severity=severity,
-            metadata=metadata,
-            affected_driver_ids=affected_driver_ids,
-            is_active=False,
-        )
-
-        self.next_disruption_id += 1
-        return disruption
+        return self._create_specific_disruption(disruption_type)
 
     def get_active_disruptions(self, simulation_time):
         """Get all disruptions active at the given simulation time"""

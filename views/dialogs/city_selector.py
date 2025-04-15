@@ -36,6 +36,8 @@ class CitySelector(QDialog):
         self.city_list.addItem("Vilnius, Lithuania")
         self.city_list.addItem("Paris, France")
 
+        self.city_list.addItem("Jonava, Lithuania") # For ease of testing
+
         self.city_list.itemDoubleClicked.connect(self.handle_selection)
 
         layout.addWidget(self.city_list)

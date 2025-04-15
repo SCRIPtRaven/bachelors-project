@@ -1,29 +1,14 @@
 let activeDisruptions = [];
 let disruptionMarkers = {};
-let disruptionInterval = null;
 let currentSimulationTime = 8 * 60 * 60; // Start at 8:00 AM in seconds
-
-function clearDisruptions() {
-    if (!layers || !layers.disruptions) return;
-    layers.disruptions.clearLayers();
-    activeDisruptions = [];
-    disruptionMarkers = {};
-
-    if (disruptionInterval) {
-        clearInterval(disruptionInterval);
-        disruptionInterval = null;
-    }
-}
 
 function updateDisruptionStatus(simulationTime) {
     activeDisruptions.forEach(disruption => {
-        // Check if disruption has expired
         if (disruption._wasActive && disruption.end_time && simulationTime >= disruption.end_time) {
             if (!disruption._resolved) {
                 disruption._resolved = true;
                 notifyDisruptionResolved(disruption);
 
-                // Update circle visualization to show resolved state
                 if (disruption.id in disruptionMarkers) {
                     const circle = disruptionMarkers[disruption.id].circle;
                     circle.setStyle({

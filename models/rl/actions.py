@@ -46,8 +46,6 @@ class DisruptionAction:
             return WaitAction.from_dict(data)
         elif action_type == ActionType.SKIP_DELIVERY:
             return SkipDeliveryAction.from_dict(data)
-        elif action_type == ActionType.PRIORITIZE_DELIVERY:
-            return PrioritizeDeliveryAction.from_dict(data)
         elif action_type == ActionType.RECIPIENT_UNAVAILABLE:
             return RecipientUnavailableAction.from_dict(data)
         else:
@@ -224,60 +222,6 @@ class SkipDeliveryAction(DisruptionAction):
             driver_id=data['driver_id'],
             delivery_index=data['delivery_index']
         )
-
-
-class PrioritizeDeliveryAction(DisruptionAction):
-    """Action to change the priority/order of deliveries"""
-
-    def __init__(self, driver_id: int, delivery_indices: List[int]):
-        super().__init__(ActionType.PRIORITIZE_DELIVERY)
-        self.driver_id = driver_id
-        self.delivery_indices = delivery_indices
-
-    def execute(self, controller):
-        """Reorder the driver's deliveries"""
-        return controller.reorder_deliveries(self.driver_id, self.delivery_indices)
-
-    def estimate_cost(self, state):
-        """Reordering has medium computational cost"""
-        return 0.3
-
-    def to_dict(self):
-        data = super().to_dict()
-        data.update({
-            'driver_id': self.driver_id,
-            'delivery_indices': self.delivery_indices
-        })
-        return data
-
-    @staticmethod
-    def from_dict(data):
-        return PrioritizeDeliveryAction(
-            driver_id=data['driver_id'],
-            delivery_indices=data['delivery_indices']
-        )
-
-
-class NoAction(DisruptionAction):
-    """Action representing the decision to take no action"""
-
-    def __init__(self):
-        super().__init__(ActionType.NO_ACTION)
-
-    def execute(self, controller):
-        """Taking no action is always successful"""
-        return True
-
-    def estimate_cost(self, state):
-        """No action has zero computational cost"""
-        return 0.0
-
-    def to_dict(self):
-        return super().to_dict()
-
-    @staticmethod
-    def from_dict(data):
-        return NoAction()
 
 
 class RecipientUnavailableAction(DisruptionAction):

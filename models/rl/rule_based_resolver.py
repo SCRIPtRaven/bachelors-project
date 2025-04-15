@@ -79,49 +79,6 @@ class RuleBasedResolver(DisruptionResolver):
 
         return actions
 
-    def _create_simple_reassignment(self, broken_driver_id, state):
-        """Create a simplified reassignment that always works"""
-        actions = []
-
-        broken_assignments = state.driver_assignments.get(broken_driver_id, [])
-        if not broken_assignments:
-            return actions
-
-        for driver_id in state.driver_assignments:
-            if driver_id != broken_driver_id:
-                action = ReassignDeliveriesAction(
-                    from_driver_id=broken_driver_id,
-                    to_driver_id=driver_id,
-                    delivery_indices=broken_assignments
-                )
-                actions.append(action)
-                break
-
-        return actions
-
-    def _create_delivery_reordering(self, driver_id, disruption, state):
-        """Create a delivery reordering action to handle recipient unavailability"""
-        try:
-            delivery_idx = disruption.metadata.get("delivery_point_index")
-            if delivery_idx is None:
-                return None
-
-            assignments = state.driver_assignments.get(driver_id, [])
-            if delivery_idx not in assignments or len(assignments) <= 1:
-                return None
-
-            new_order = [idx for idx in assignments if idx != delivery_idx]
-            new_order.append(delivery_idx)
-
-            from models.rl.actions import PrioritizeDeliveryAction
-            return PrioritizeDeliveryAction(
-                driver_id=driver_id,
-                delivery_indices=new_order
-            )
-        except Exception as e:
-            print(f"Error creating delivery reordering: {e}")
-            return None
-
     def _get_affected_drivers(self, disruption: Disruption, state: DeliverySystemState) -> Set[int]:
         """Determine which drivers are affected by a disruption"""
         try:
@@ -206,33 +163,6 @@ class RuleBasedResolver(DisruptionResolver):
                     return delivery_idx
 
         return None
-
-    def _is_major_route_disruption(self, state: DeliverySystemState, disruption: Disruption) -> bool:
-        """
-        Determine if a disruption affects a major route
-        """
-        try:
-            affected_drivers = self._get_affected_drivers(disruption, state)
-            if len(affected_drivers) >= 1:
-                return True
-
-            try:
-                nearest_node = ox.nearest_nodes(
-                    self.G,
-                    X=disruption.location[1],
-                    Y=disruption.location[0]
-                )
-
-                degree = len(list(self.G.neighbors(nearest_node)))
-
-                return degree >= 2
-
-            except Exception as e:
-                print(f"Error analyzing road importance: {e}")
-                return disruption.severity > 0.3
-        except Exception as e:
-            print(f"Error in _is_major_route_disruption: {e}")
-            return False
 
     def _create_reroute_action(self, driver_id: int, disruption: Disruption, state: DeliverySystemState) -> Optional[
         RerouteAction]:
@@ -568,128 +498,6 @@ class RuleBasedResolver(DisruptionResolver):
                     ((start_point[0] + end_point[0]) / 2 + 0.0005, (start_point[1] + end_point[1]) / 2 + 0.0005),
                     end_point]
 
-    def _create_reassignment_actions(self, broken_driver_id: int, state: DeliverySystemState) -> List[DisruptionAction]:
-        """Create actions to reassign deliveries from a broken-down driver to others"""
-        actions = []
-
-        broken_assignments = state.driver_assignments.get(broken_driver_id, [])
-        if not broken_assignments:
-            print(f"No assignments for broken driver {broken_driver_id}")
-            return actions
-
-        print(f"Found {len(broken_assignments)} assignments for broken driver {broken_driver_id}")
-
-        available_drivers = []
-        for driver_id in state.driver_assignments:
-            if driver_id != broken_driver_id:
-                weight_capacity = 1000.0
-                volume_capacity = 10.0
-
-                if driver_id in state.driver_capacities:
-                    try:
-                        weight_capacity, volume_capacity = state.driver_capacities[driver_id]
-                    except:
-                        pass
-
-                distance = float('inf')
-                current_pos = state.driver_positions.get(driver_id)
-                broken_pos = state.driver_positions.get(broken_driver_id)
-
-                if current_pos and broken_pos:
-                    try:
-                        distance = self._calculate_distance(current_pos, broken_pos)
-                    except:
-                        pass
-
-                available_drivers.append({
-                    'id': driver_id,
-                    'distance': distance,
-                    'weight_capacity': weight_capacity,
-                    'volume_capacity': volume_capacity
-                })
-
-        if not available_drivers:
-            print(f"No available drivers found")
-            return actions
-
-        available_drivers.sort(key=lambda d: d['distance'])
-        print(f"Found {len(available_drivers)} available drivers")
-
-        delivery_data = []
-        for idx in broken_assignments:
-            weight = 1.0
-            volume = 0.01
-
-            try:
-                if idx < len(state.deliveries):
-                    delivery = state.deliveries[idx]
-
-                    if isinstance(delivery, (list, tuple)):
-                        if len(delivery) > 2:
-                            weight = float(delivery[2]) if delivery[2] is not None else weight
-                        if len(delivery) > 3:
-                            volume = float(delivery[3]) if delivery[3] is not None else volume
-                    elif hasattr(delivery, 'weight') and hasattr(delivery, 'volume'):
-                        weight = float(delivery.weight)
-                        volume = float(delivery.volume)
-            except:
-                pass
-
-            delivery_data.append({
-                'index': idx,
-                'weight': weight,
-                'volume': volume
-            })
-
-        if available_drivers and delivery_data:
-            remaining_deliveries = set(broken_assignments)
-
-            for driver in available_drivers:
-                if not remaining_deliveries:
-                    break
-
-                assignable_indices = []
-                assigned_weight = 0
-                assigned_volume = 0
-
-                for delivery in delivery_data:
-                    if delivery['index'] in remaining_deliveries:
-                        new_weight = assigned_weight + delivery['weight']
-                        new_volume = assigned_volume + delivery['volume']
-
-                        if (new_weight <= driver['weight_capacity'] and
-                                new_volume <= driver['volume_capacity']):
-                            assignable_indices.append(delivery['index'])
-                            assigned_weight = new_weight
-                            assigned_volume = new_volume
-
-                if assignable_indices:
-                    action = ReassignDeliveriesAction(
-                        from_driver_id=broken_driver_id,
-                        to_driver_id=driver['id'],
-                        delivery_indices=assignable_indices
-                    )
-                    actions.append(action)
-                    print(
-                        f"Created reassignment action from {broken_driver_id} to {driver['id']} with {len(assignable_indices)} deliveries")
-
-                    remaining_deliveries.difference_update(assignable_indices)
-
-            if not actions and available_drivers:
-                first_delivery = broken_assignments[0]
-                closest_driver = available_drivers[0]['id']
-
-                action = ReassignDeliveriesAction(
-                    from_driver_id=broken_driver_id,
-                    to_driver_id=closest_driver,
-                    delivery_indices=[first_delivery]
-                )
-                actions.append(action)
-                print(
-                    f"Created minimum fallback action: reassign delivery {first_delivery} from {broken_driver_id} to {closest_driver}")
-
-        return actions
-
     def _calculate_distance(self, point1: Tuple[float, float], point2: Tuple[float, float]) -> float:
         """
         Calculate the Haversine distance between two points in meters
@@ -707,34 +515,3 @@ class RuleBasedResolver(DisruptionResolver):
         r = 6371000
 
         return c * r
-
-    def _distance_point_to_line(self, point, line_start, line_end):
-        """
-        Calculate the shortest distance from a point to a line segment
-        """
-        try:
-            p_lat, p_lon = point
-            s_lat, s_lon = line_start
-            e_lat, e_lon = line_end
-
-            if s_lat == e_lat and s_lon == e_lon:
-                return self._calculate_distance(point, line_start)
-
-            line_length_sq = (e_lat - s_lat) ** 2 + (e_lon - s_lon) ** 2
-
-            if line_length_sq < 1e-10:
-                return self._calculate_distance(point, line_start)
-
-            t = max(0, min(1, ((p_lat - s_lat) * (e_lat - s_lat) +
-                               (p_lon - s_lon) * (e_lon - s_lon)) / line_length_sq))
-
-            closest_lat = s_lat + t * (e_lat - s_lat)
-            closest_lon = s_lon + t * (e_lon - s_lon)
-
-            return self._calculate_distance(point, (closest_lat, closest_lon))
-        except Exception as e:
-            print(f"Error in distance calculation: {e}")
-            try:
-                return self._calculate_distance(point, line_start)
-            except:
-                return float('inf')

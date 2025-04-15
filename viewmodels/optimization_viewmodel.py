@@ -252,11 +252,12 @@ class OptimizationViewModel(QtCore.QObject):
                 driver_id = assignment.driver_id
                 driver_style = self.route_color_manager.get_route_style(driver_id - 1, total_drivers)
 
+                driver_style = driver_style.copy()
+
                 if selected_driver_id is not None:
                     if driver_id == selected_driver_id:
                         driver_style['opacity'] = 1.0
                     else:
-                        driver_style = driver_style.copy()
                         driver_style['opacity'] = 0.15
 
                 driver_style_map[driver_id] = driver_style

@@ -34,9 +34,6 @@ class DisruptionViewModel(QtCore.QObject):
         self.drivers = None
         self.current_solution = None
 
-        self._route_update_cache = {}
-        self._route_update_lock = QtCore.QMutex()
-
         self.resolver_thread = QtCore.QThread()
         self.resolver_worker = None
         self.processing_disruptions = set()
@@ -106,7 +103,6 @@ class DisruptionViewModel(QtCore.QObject):
             return True
 
         if self.G and self.warehouse_location and self.delivery_points:
-            print("Initializing DisruptionService...")
             self.disruption_service = DisruptionService(
                 self.G,
                 self.warehouse_location,
@@ -133,7 +129,6 @@ class DisruptionViewModel(QtCore.QObject):
                 self.current_solution = data['solution']
                 if self.disruption_service:
                     self.disruption_service.set_solution(data['solution'])
-                print(f"DisruptionViewModel: Received solution with {len(data['solution'])} assignments")
 
     def handle_disruption_activated_signal(self, disruption):
         """
@@ -210,44 +205,10 @@ class DisruptionViewModel(QtCore.QObject):
         self.simulation_controller.initialize_simulation()
         return True
 
-    @QtCore.pyqtSlot()
-    def _handle_controller_update_available(self):
-        """Handles the simple notification that data is in the queue."""
-        print("DisruptionVM: Received route_update_available signal.")
-        updated_driver_ids = set()
-        try:
-            while not self._route_update_queue.empty():
-                try:
-                    driver_id, route_string = self._route_update_queue.get_nowait()
-                    print(f"DisruptionVM: Dequeued update for driver {driver_id}")
-                    with QtCore.QMutexLocker(self._route_cache_lock):
-                        self._route_data_cache[driver_id] = route_string
-                    updated_driver_ids.add(driver_id)
-                except queue.Empty:
-                    break
-                except Exception as e:
-                    print(f"DisruptionVM: Error processing queue item: {e}")
-
-            for driver_id in updated_driver_ids:
-                print(f"DisruptionVM: Emitting request_map_route_update for driver {driver_id}")
-                self.request_map_route_update.emit(driver_id)
-
-        except Exception as e:
-            print(f"DisruptionVM: Error handling update available: {e}")
-
     def get_cached_route_update(self, driver_id):
         """Called by the View (MapWidget) to retrieve the cached data"""
         with QtCore.QMutexLocker(self._route_cache_lock):
             return self._route_data_cache.pop(driver_id, None)
-
-    @QtCore.pyqtSlot(int, str)
-    def _handle_controller_route_update(self, driver_id, route_string):
-        """Receives the update from the controller and caches it"""
-        print(f"DisruptionVM: Received route update for driver {driver_id} from controller.")
-        with QtCore.QMutexLocker(self._route_update_lock):
-            self._route_update_cache[driver_id] = route_string
-        self.request_map_route_update.emit(driver_id)
-        print(f"DisruptionVM: Emitted request_map_route_update for driver {driver_id}")
 
     def initialize_resolver(self):
         """Initialize the disruption resolver"""
