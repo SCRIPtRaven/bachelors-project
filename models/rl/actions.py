@@ -48,8 +48,6 @@ class DisruptionAction:
             return SkipDeliveryAction.from_dict(data)
         elif action_type == ActionType.RECIPIENT_UNAVAILABLE:
             return RecipientUnavailableAction.from_dict(data)
-        else:
-            return NoAction()
 
 
 class RerouteAction(DisruptionAction):
@@ -244,7 +242,6 @@ class RecipientUnavailableAction(DisruptionAction):
         )
 
         if success:
-            # Register the end handler for when recipient becomes available
             end_time = controller.simulation_time + self.duration
             controller.action_log.emit(
                 f"Recipient unavailable for delivery {self.delivery_index}. "

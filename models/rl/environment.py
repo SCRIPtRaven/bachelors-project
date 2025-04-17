@@ -4,8 +4,8 @@ import gym
 import numpy as np
 from gym import spaces
 
-from models.entities.disruption import Disruption
-from models.rl.actions import ActionType, DisruptionAction, RerouteAction, ReassignDeliveriesAction
+from models.entities.disruption import Disruption, DisruptionType
+from models.rl.actions import ActionType, DisruptionAction
 from models.rl.simulation_controller import SimulationController
 from models.rl.state import DeliverySystemState
 
@@ -46,14 +46,17 @@ class DeliveryEnvironment(gym.Env):
         # 21-30: Wait driver 1-10
         # 31-40: Skip delivery for driver 1-10
         max_drivers = 10
+        max_disruptions = 5
+        strategies_per_driver = 5
         self.action_space = spaces.Discrete(1 + max_drivers * 4)
+        self.action_space = spaces.Discrete(1 + max_drivers * strategies_per_driver)
 
         # Observation space based on DeliverySystemState encoding
         # This should match the size of the vector returned by encode_for_rl()
         # Global features + driver features + disruption features
         global_features = 3
-        driver_features = 4 * max_drivers
-        disruption_features = 7 * 5
+        driver_features = 8 * max_drivers  # 8 features per driver
+        disruption_features = 10 * max_disruptions
 
         state_size = global_features + driver_features + disruption_features
         self.observation_space = spaces.Box(
@@ -78,6 +81,29 @@ class DeliveryEnvironment(gym.Env):
             "original_completion_time": 0.0,
             "final_completion_time": 0.0
         }
+
+    def check_solution_feasibility(self):
+        """Check if the current scenario is feasibly solvable"""
+        if not self.active_disruptions:
+            return "No active disruptions"
+
+        # Check if disruptions affect any drivers
+        affected_drivers = set()
+        for d in self.active_disruptions:
+            affected_drivers.update(d.affected_driver_ids)
+
+        if not affected_drivers:
+            return "No drivers affected by disruptions"
+
+        # Check if there are valid actions available
+        from models.rl.rule_based_resolver import RuleBasedResolver
+        resolver = RuleBasedResolver(self.graph, self.warehouse_location)
+        for d in self.active_disruptions:
+            actions = resolver.resolve_disruptions(self.current_state, [d])
+            if actions:
+                return f"Solvable: {len(actions)} possible actions for disruption {d.id}"
+
+        return "No valid actions found for any disruption"
 
     def reset(self):
         """
@@ -212,48 +238,17 @@ class DeliveryEnvironment(gym.Env):
         )
 
     def _decode_action(self, action_id: int) -> Optional[DisruptionAction]:
-        """
-        Convert action_id to a DisruptionAction object
-
-        Args:
-            action_id: Index of the action in the action space
-
-        Returns:
-            DisruptionAction object or None
-        """
-        max_drivers = 10
-
+        """Convert action_id to a DisruptionAction with better rerouting strategy"""
         if action_id == 0:
             return None
 
-        if 1 <= action_id <= max_drivers:
-            driver_id = action_id
-            return self._create_reroute_action(driver_id)
+        max_drivers = 10
+        strategies_per_driver = 5
 
-        if max_drivers * 2 + 1 <= action_id <= max_drivers * 3:
-            driver_id = action_id - (max_drivers * 2)
+        driver_idx = (action_id - 1) // strategies_per_driver
+        strategy_idx = (action_id - 1) % strategies_per_driver
+        driver_id = driver_idx + 1
 
-            if self.latest_disruption and (self.simulation_controller.simulation_time - self.last_action_time) <= 600:
-                wait_time = min(1800, self.latest_disruption.duration)
-                return self._create_wait_action(driver_id, wait_time)
-            return None
-
-        if max_drivers * 3 + 1 <= action_id <= max_drivers * 4:
-            driver_id = action_id - (max_drivers * 3)
-            return self._create_skip_action(driver_id)
-
-        return None
-
-    def _create_reroute_action(self, driver_id: int) -> Optional[RerouteAction]:
-        """
-        Create a reroute action for a driver
-
-        Args:
-            driver_id: ID of the driver to reroute
-
-        Returns:
-            RerouteAction object or None
-        """
         assignment = None
         for a in self.simulation_controller.current_solution:
             if a.driver_id == driver_id:
@@ -266,80 +261,78 @@ class DeliveryEnvironment(gym.Env):
         if driver_id not in self.simulation_controller.driver_positions:
             return None
 
-        from models.rl.rule_based_resolver import RuleBasedResolver
-
-        resolver = RuleBasedResolver(self.graph, self.warehouse_location)
         disruption = self.latest_disruption
-
         if not disruption:
             if self.active_disruptions:
                 disruption = self.active_disruptions[0]
             else:
                 return None
 
-        reroute_action = resolver._create_reroute_action(
+        reroute_action = self._create_parameterized_reroute_action(
             driver_id,
             disruption,
-            self.current_state
+            self.current_state,
+            strategy_idx
         )
 
         return reroute_action
 
-    def _create_wait_action(self, driver_id: int, wait_time: float) -> Optional[DisruptionAction]:
-        """
-        Create a wait action for a driver
+    def _create_parameterized_reroute_action(self, driver_id, disruption, state, strategy_idx):
+        """Create a reroute action with different strategy parameters based on index"""
+        from models.rl.rule_based_resolver import RuleBasedResolver
 
-        Args:
-            driver_id: ID of the driver
-            wait_time: Time to wait in seconds
+        strategies = [
+            # Conservative - wide avoidance
+            {
+                "weight_multiplier": 5.0,
+                "search_radius_factor": 2.0,
+                "perpendicular_offset": 1.5
+            },
+            # Balanced - moderate avoidance
+            {
+                "weight_multiplier": 10.0,
+                "search_radius_factor": 1.5,
+                "perpendicular_offset": 1.0
+            },
+            # Default - similar to rule-based
+            {
+                "weight_multiplier": 15.0,
+                "search_radius_factor": 1.2,
+                "perpendicular_offset": 0.8
+            },
+            # Aggressive - tight avoidance
+            {
+                "weight_multiplier": 20.0,
+                "search_radius_factor": 1.0,
+                "perpendicular_offset": 0.5
+            },
+            # Very aggressive - minimal avoidance
+            {
+                "weight_multiplier": 30.0,
+                "search_radius_factor": 0.8,
+                "perpendicular_offset": 0.3
+            }
+        ]
 
-        Returns:
-            WaitAction object or None
-        """
-        assignment = None
-        for a in self.simulation_controller.current_solution:
-            if a.driver_id == driver_id:
-                assignment = a
-                break
+        resolver = RuleBasedResolver(state.graph, state.warehouse_location)
 
-        if not assignment or not assignment.delivery_indices:
-            return None
+        strategy = strategies[strategy_idx]
 
-        from models.rl.actions import WaitAction
+        original_find_path = resolver._find_path_avoiding_disruption
 
-        return WaitAction(
-            driver_id=driver_id,
-            wait_time=wait_time,
-            disruption_id=self.latest_disruption.id if self.latest_disruption else 0
-        )
+        def modified_find_path(graph, start_point, end_point, disruption):
+            resolver.weight_multiplier = strategy["weight_multiplier"]
+            resolver.search_radius_factor = strategy["search_radius_factor"]
+            resolver.perpendicular_offset = strategy["perpendicular_offset"]
+            return original_find_path(graph, start_point, end_point, disruption)
 
-    def _create_skip_action(self, driver_id: int) -> Optional[DisruptionAction]:
-        """
-        Create a skip action for a driver's current delivery
+        resolver._find_path_avoiding_disruption = modified_find_path
 
-        Args:
-            driver_id: ID of the driver
+        reroute_action = resolver._create_reroute_action(driver_id, disruption, state)
 
-        Returns:
-            SkipDeliveryAction object or None
-        """
-        assignment = None
-        for a in self.simulation_controller.current_solution:
-            if a.driver_id == driver_id:
-                assignment = a
-                break
+        resolver._find_path_avoiding_disruption = original_find_path
 
-        if not assignment or not assignment.delivery_indices:
-            return None
-
-        delivery_idx = assignment.delivery_indices[0]
-
-        from models.rl.actions import SkipDeliveryAction
-
-        return SkipDeliveryAction(
-            driver_id=driver_id,
-            delivery_index=delivery_idx
-        )
+        return reroute_action
 
     def _advance_simulation(self, time_delta: float):
         """
@@ -422,58 +415,48 @@ class DeliveryEnvironment(gym.Env):
         )
 
     def _calculate_reward(self, action, success, time_before) -> float:
-        """
-        Calculate the reward for the current step
+        """Enhanced reward function focused on rerouting quality"""
+        if not action:
+            return -0.1
 
-        Args:
-            action: The action that was taken
-            success: Whether the action was successful
-            time_before: Simulation time before the action
+        if not success:
+            return -2.0
 
-        Returns:
-            Reward value
-        """
-        reward = 0.0
+        reward = 5.0
 
-        if action and not success:
-            reward -= 2.0
+        if action.action_type == ActionType.REROUTE:
+            if hasattr(action, 'driver_id') and action.driver_id in self.simulation_controller.driver_routes:
+                route_info = self.simulation_controller.driver_routes[action.driver_id]
 
-        if action and success:
-            reward += 1.0
+                old_route_time = getattr(self.simulation_controller, '_old_route_times', {}).get(action.driver_id, 0)
+                new_route_time = sum(route_info.get('times', []))
 
-            if action.action_type == ActionType.REROUTE:
-                reward += 2.0
-            elif action.action_type == ActionType.REASSIGN_DELIVERIES:
-                reward += 3.0
-            elif action.action_type == ActionType.WAIT:
-                reward += 0.5
-            elif action.action_type == ActionType.SKIP_DELIVERY:
-                reward += 0.0
+                time_delta = old_route_time - new_route_time
+                time_delta_reward = min(time_delta / 300, 5.0)
 
-        time_estimate_before = self.simulation_controller.current_estimated_time
-        time_estimate_after = self.simulation_controller.current_estimated_time
+                reward += time_delta_reward
 
-        time_saved = time_estimate_before - time_estimate_after
-        normalized_time_saved = time_saved / 3600
+                if hasattr(action, 'affected_disruption_id') and action.affected_disruption_id:
+                    disruption = next((d for d in self.active_disruptions
+                                       if d.id == action.affected_disruption_id), None)
 
-        if action and success:
-            reward += normalized_time_saved * 5.0
+                    if disruption and disruption.type == DisruptionType.ROAD_CLOSURE:
+                        reward += 2.0
+                    elif disruption and disruption.type == DisruptionType.TRAFFIC_JAM:
+                        reward += disruption.severity * 1.5
 
-        deliveries_completed = len(self.simulation_controller.completed_deliveries)
-        deliveries_skipped = len(self.simulation_controller.skipped_deliveries)
+        time_after = self.simulation_controller.simulation_time
+        simulation_progress = (time_after - time_before) / self.step_size
 
-        total_deliveries = sum(len(a.delivery_indices) for a in self.simulation_controller.current_solution)
+        progress_reward = simulation_progress * 0.5
+        reward += progress_reward
 
-        completion_weight = 0.8
-        skip_weight = 0.2
+        current_completed = len(self.simulation_controller.completed_deliveries)
+        previous_completed = getattr(self, '_previous_completed_count', 0)
+        new_completions = current_completed - previous_completed
+        self._previous_completed_count = current_completed
 
-        weighted_progress = (completion_weight * deliveries_completed + skip_weight * deliveries_skipped) / max(1,
-                                                                                                                total_deliveries)
-
-        progress_reward = weighted_progress * 10.0
-
-        step_progress = progress_reward / self.simulation_steps
-        reward += step_progress
+        reward += new_completions * 3.0
 
         return reward
 

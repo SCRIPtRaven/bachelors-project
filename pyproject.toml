@@ -25,6 +25,7 @@ colormath = "^3.0.0"
 pydantic = "^2.10.6"
 gym = "^0.26.2"
 keras = "^3.9.1"
+tensorflow = "^2.19.0"
 
 [build-system]
 requires = ["poetry-core"]

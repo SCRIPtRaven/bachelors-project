@@ -1,6 +1,8 @@
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QMessageBox, QWidget, QFrame
 
+from config.app_settings import UI_COLORS
+from utils.ui_styles import get_button_style
 from views.components.map.map_widget import MapWidget
 from views.dialogs.action_log import ActionLogDialog
 from views.dialogs.city_selector import CitySelector
@@ -85,22 +87,7 @@ class MainWindow(QWidget):
         self.btn_simulate = QPushButton("Simulate Deliveries")
         self.btn_simulate.setEnabled(False)
         self.btn_simulate.hide()
-        self.btn_simulate.setStyleSheet("""
-            QPushButton {
-                min-height: 35px;
-                background-color: #FF9800;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 5px 15px;
-            }
-            QPushButton:hover {
-                background-color: #F57C00;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-            }
-        """)
+        self.btn_simulate.setStyleSheet(get_button_style('success'))
 
         self.solution_switch = QtWidgets.QPushButton("Simulated Annealing")
         self.solution_switch.setCheckable(True)

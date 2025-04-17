@@ -91,7 +91,7 @@ class DisruptionService:
             location = self.snapped_delivery_points[point_idx][:2]
 
             radius = 5
-            duration = random.randint(1800, 7200)
+            duration = random.randint(720, 1800)
             severity = 1.0
             metadata = {
                 "delivery_point_index": point_idx,

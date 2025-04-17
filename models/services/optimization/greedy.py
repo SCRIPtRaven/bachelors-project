@@ -15,19 +15,24 @@ class GreedyOptimizer(DeliveryOptimizer):
     def optimize(self):
         try:
             start_time = time.time()
+            '''
             progress_bar = tqdm(total=2, desc="Greedy optimization")
 
             # Phase 1: Construct balanced initial solution
             progress_bar.set_description("Phase 1: Balanced delivery assignment")
+            '''
             solution, unassigned = self._construct_initial_solution()
-
+            '''
             progress_bar.update(1)
             progress_bar.set_description("Phase 2: Route optimization")
+            '''
 
             # Phase 2: Optimize routes using nearest neighbor
             for assignment in solution:
                 if len(assignment.delivery_indices) > 1:
                     self._optimize_route_order(assignment)
+
+            '''
 
             final_cost = self._evaluate_solution(solution, unassigned)
             total_time = self.calculate_total_time(solution)
@@ -42,7 +47,6 @@ class GreedyOptimizer(DeliveryOptimizer):
                 'balance': f"{balance_score:.2f}",
                 'unassigned': len(unassigned)
             })
-
             print("\nGreedy Optimization Results:")
             print(f"Total Travel Time: {self._format_time_hms(total_time)} ({total_time / 60:.2f} minutes)")
             print(f"Driver Utilization: {driver_utilization:.2f}%")
@@ -51,8 +55,10 @@ class GreedyOptimizer(DeliveryOptimizer):
             print(f"Solution Cost: {final_cost:.2f}")
             print(f"Computation Time: {time.time() - start_time:.2f} seconds")
             print("=" * 50)
+            
 
             progress_bar.close()
+            '''
 
             self.finished.emit(solution, unassigned)
 

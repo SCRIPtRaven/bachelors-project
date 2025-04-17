@@ -16,7 +16,7 @@ def download_and_save_graph(place_name="Kaunas, Lithuania"):
 
     filename = get_graph_file_path(place_name)
 
-    G = ox.graph_from_place(place_name, network_type=DEFAULT_NETWORK_TYPE)
+    G = ox.graph_from_place(place_name, network_type=DEFAULT_NETWORK_TYPE, simplify=False)
     G = ox.add_edge_speeds(G)
     G = ox.add_edge_travel_times(G)
     ox.save_graphml(G, filename)

@@ -84,7 +84,7 @@ function getDriverDelayFactor(driver) {
     let slowestFactor = 1.0;
 
     activeDisruptions.forEach(disruption => {
-        if (!disruption._wasActive)
+        if (!disruption._wasActive || disruption._resolved)
             return;
 
         const disruptionPos = L.latLng(
@@ -207,8 +207,8 @@ function addDriverData(data) {
     data.forEach(driver => {
         const driverIcon = L.divIcon({
             className: 'driver-marker',
-            html: `<div style="background-color:${driver.color}">${driver.id}</div>`,
-            iconSize: [24, 24]
+            html: `<div class="driver-icon" style="background-color:${driver.color}">${driver.id}</div>`,
+            iconSize: [32, 32]
         });
 
         L.marker([driver.lat, driver.lng], {icon: driverIcon})
@@ -274,8 +274,8 @@ function startSimulation(simulationData) {
         if (route.path && route.path.length > 0) {
             const driverIcon = L.divIcon({
                 className: 'driver-marker',
-                html: `<div style="background-color:${route.style.color}">${route.driverId}</div>`,
-                iconSize: [24, 24]
+                html: `<div class="driver-icon" style="background-color:${route.style.color}">${route.driverId}</div>`,
+                iconSize: [32, 32]
             });
 
             const marker = L.marker(route.path[0], {icon: driverIcon})
@@ -542,10 +542,10 @@ function updateDriverDisruptionIndicator(driver, delayFactor) {
 
         if (isAffected) {
             const slowdownPct = Math.round((1 - delayFactor) * 100);
-            iconHtml = `<div style="background-color:${driver.color}; position: relative;">
-                            ${driver.id}
-                            <span style="position: absolute; top: -10px; right: -10px; font-size: 12px;">⚠️</span>
-                        </div>`;
+            iconHtml = `<div class="driver-icon" style="background-color:${driver.color}">
+                    ${driver.id}
+                    <span style="position: absolute; top: -5px; right: -5px; background-color: #ff4500; border-radius: 50%; width: 14px; height: 14px; display: flex; align-items: center; justify-content: center; border: 1px solid white; font-size: 10px;">⚠️</span>
+                </div>`;
 
             driver.marker.bindPopup(`Driver ${driver.id} slowed by ${slowdownPct}%`).openPopup();
 
@@ -555,13 +555,13 @@ function updateDriverDisruptionIndicator(driver, delayFactor) {
                 }
             }, 2000);
         } else {
-            iconHtml = `<div style="background-color:${driver.color}">${driver.id}</div>`;
+            iconHtml = `<div class="driver-icon" style="background-color:${driver.color}">${driver.id}</div>`;
         }
 
         const iconDiv = new L.DivIcon({
             className: 'driver-marker',
             html: iconHtml,
-            iconSize: [24, 24]
+            iconSize: [32, 32]
         });
 
         driver.marker.setIcon(iconDiv);

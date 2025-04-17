@@ -2,9 +2,10 @@ import random
 from collections import deque
 
 import numpy as np
-import tensorflow as tf
+from keras import Input, Model
+from keras.src.layers import Add, Subtract, Lambda
+from tensorflow.keras import backend as K
 from tensorflow.keras.layers import Dense
-from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
 
 
@@ -18,88 +19,110 @@ class DQNAgent:
         self.action_size = action_size
 
         # Hyperparameters
-        self.gamma = 0.95  # discount rate
-        self.epsilon = 1.0  # exploration rate
-        self.epsilon_min = 0.01
-        self.epsilon_decay = 0.995
-        self.learning_rate = 0.001
+        self.gamma = 0.99  # Discount rate
+        self.epsilon = 1.0  # Exploration rate
+        self.epsilon_min = 0.05
+        self.epsilon_decay = 0.998
+        self.learning_rate = 0.0005
+        self.tau = 0.001  # For soft target updates
 
-        # Replay memory
-        self.memory = deque(maxlen=10000)
+        self.memory = deque(maxlen=50000)
 
-        # Build model
+        self.priorities = deque(maxlen=50000)
+        self.priority_alpha = 0.6
+        self.priority_beta = 0.4
+        self.priority_beta_increment = 0.001
+        self.priority_epsilon = 0.01
+
         self.model = self._build_model()
         self.target_model = self._build_model()
         self.update_target_model()
 
     def _build_model(self):
-        """
-        Build the neural network model
+        """Build a dueling DQN network with improved architecture"""
+        input_layer = Input(shape=(self.state_size,))
 
-        Returns:
-            Keras model
-        """
-        model = Sequential()
-        model.add(Dense(64, input_dim=self.state_size, activation='relu'))
-        model.add(Dense(64, activation='relu'))
-        model.add(Dense(self.action_size, activation='linear'))
-        model.compile(loss='mse', optimizer=Adam(lr=self.learning_rate))
+        shared = Dense(128, activation='relu')(input_layer)
+        shared = Dense(128, activation='relu')(shared)
+
+        value_stream = Dense(64, activation='relu')(shared)
+        value = Dense(1)(value_stream)
+
+        advantage_stream = Dense(64, activation='relu')(shared)
+        advantage = Dense(self.action_size)(advantage_stream)
+
+        q_values = Add()([value, Subtract()([advantage,
+                                             Lambda(lambda x: K.mean(x, axis=1, keepdims=True))(advantage)])])
+
+        model = Model(inputs=input_layer, outputs=q_values)
+        model.compile(loss='huber', optimizer=Adam(learning_rate=self.learning_rate))
         return model
 
     def update_target_model(self):
-        """Update the target model with weights from the main model"""
-        self.target_model.set_weights(self.model.get_weights())
+        """Soft update of target network"""
+        weights = self.model.get_weights()
+        target_weights = self.target_model.get_weights()
+
+        for i in range(len(target_weights)):
+            target_weights[i] = self.tau * weights[i] + (1 - self.tau) * target_weights[i]
+
+        self.target_model.set_weights(target_weights)
 
     def remember(self, state, action, reward, next_state, done):
-        """
-        Store experience in replay memory
+        """Store experience with priority"""
+        priority = abs(reward) + self.priority_epsilon
 
-        Args:
-            state: Current state
-            action: Action taken
-            reward: Reward received
-            next_state: Next state
-            done: Whether the episode is done
-        """
         self.memory.append((state, action, reward, next_state, done))
+        self.priorities.append(priority)
 
-    def act(self, state):
-        """
-        Choose an action based on state
-
-        Args:
-            state: Current state
-
-        Returns:
-            Action to take
-        """
-        if np.random.rand() <= self.epsilon:
+    def act(self, state, training=True):
+        """Choose action using epsilon-greedy policy"""
+        if training and np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
 
-        act_values = self.model.predict(state.reshape(1, -1))
+        act_values = self.model.predict(state.reshape(1, -1), verbose=0)
         return np.argmax(act_values[0])
 
     def replay(self, batch_size):
-        """
-        Train the model on a batch of experiences
-
-        Args:
-            batch_size: Number of experiences to sample
-        """
+        """Train the model using prioritized experience replay"""
         if len(self.memory) < batch_size:
             return
 
-        minibatch = random.sample(self.memory, batch_size)
+        priorities = np.array(self.priorities)
+        probabilities = priorities ** self.priority_alpha
+        probabilities /= probabilities.sum()
 
-        for state, action, reward, next_state, done in minibatch:
-            target = reward
-            if not done:
-                target = reward + self.gamma * np.amax(self.target_model.predict(next_state.reshape(1, -1))[0])
+        indices = np.random.choice(len(self.memory), batch_size, p=probabilities)
+        batch = [self.memory[i] for i in indices]
 
-            target_f = self.model.predict(state.reshape(1, -1))
-            target_f[0][action] = target
+        self.priority_beta = min(1.0, self.priority_beta + self.priority_beta_increment)
+        weights = (len(self.memory) * probabilities[indices]) ** (-self.priority_beta)
+        weights /= weights.max()
 
-            self.model.fit(state.reshape(1, -1), target_f, epochs=1, verbose=0)
+        states = np.array([item[0] for item in batch])
+        actions = np.array([item[1] for item in batch])
+        rewards = np.array([item[2] for item in batch])
+        next_states = np.array([item[3] for item in batch])
+        dones = np.array([item[4] for item in batch])
+
+        next_actions = np.argmax(self.model.predict(next_states, verbose=0), axis=1)
+
+        target_q_values = self.target_model.predict(next_states, verbose=0)
+        target_values = np.array([target_q_values[i, next_actions[i]]
+                                  for i in range(batch_size)])
+
+        targets = rewards + self.gamma * target_values * (1 - dones)
+
+        current_q = self.model.predict(states, verbose=0)
+
+        for i in range(batch_size):
+            current_q[i, actions[i]] = targets[i]
+
+        self.model.fit(states, current_q, sample_weight=weights, epochs=1, verbose=0)
+
+        for i, idx in enumerate(indices):
+            td_error = abs(targets[i] - self.model.predict(states[i].reshape(1, -1), verbose=0)[0, actions[i]])
+            self.priorities[idx] = td_error + self.priority_epsilon
 
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
@@ -109,5 +132,11 @@ class DQNAgent:
         self.model.load_weights(name)
 
     def save(self, name):
-        """Save model weights to file"""
+        """Save model weights with proper Keras format"""
+        # Ensure filename ends with .weights.h5
+        if not name.endswith('.weights.h5'):
+            if name.endswith('.h5'):
+                name = name.replace('.h5', '.weights.h5')
+            else:
+                name = name + '.weights.h5'
         self.model.save_weights(name)
