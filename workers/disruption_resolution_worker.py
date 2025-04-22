@@ -59,9 +59,8 @@ class DisruptionResolutionWorker(QtCore.QObject):
 
     def _manual_copy_action(self, action):
         """Manually copy an action based on its type"""
-        from models.rl.actions import RerouteAction, ReassignDeliveriesAction, WaitAction
-        from models.rl.actions import SkipDeliveryAction
-        from models.rl.actions import RecipientUnavailableAction
+        from models.resolvers.actions import RerouteAction
+        from models.resolvers.actions import RecipientUnavailableAction
 
         if isinstance(action, RerouteAction):
             return RerouteAction(
@@ -72,23 +71,6 @@ class DisruptionResolutionWorker(QtCore.QObject):
                 rerouted_segment_end=action.rerouted_segment_end,
                 next_delivery_index=action.next_delivery_index,
                 delivery_indices=list(action.delivery_indices) if action.delivery_indices else []
-            )
-        elif isinstance(action, ReassignDeliveriesAction):
-            return ReassignDeliveriesAction(
-                from_driver_id=action.from_driver_id,
-                to_driver_id=action.to_driver_id,
-                delivery_indices=list(action.delivery_indices) if action.delivery_indices else []
-            )
-        elif isinstance(action, WaitAction):
-            return WaitAction(
-                driver_id=action.driver_id,
-                wait_time=action.wait_time,
-                disruption_id=action.disruption_id
-            )
-        elif isinstance(action, SkipDeliveryAction):
-            return SkipDeliveryAction(
-                driver_id=action.driver_id,
-                delivery_index=action.delivery_index
             )
         elif isinstance(action, RecipientUnavailableAction):
             return RecipientUnavailableAction(

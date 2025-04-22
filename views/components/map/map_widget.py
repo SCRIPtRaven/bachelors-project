@@ -1,6 +1,6 @@
 from PyQt5 import QtCore, QtWidgets
 
-from models.rl.js_interface import SimulationJsInterface
+from models.resolvers.js_interface import SimulationJsInterface
 from utils.geo_utils import get_city_coordinates
 from utils.visualization import VisualizationQueue
 from viewmodels.delivery_viewmodel import DeliveryViewModel

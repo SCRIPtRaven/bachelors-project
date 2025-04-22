@@ -2,8 +2,8 @@ from abc import ABC, abstractmethod
 from typing import List
 
 from models.entities.disruption import Disruption
-from models.rl.actions import DisruptionAction
-from models.rl.state import DeliverySystemState
+from models.resolvers.actions import DisruptionAction
+from models.resolvers.state import DeliverySystemState
 
 
 class DisruptionResolver(ABC):

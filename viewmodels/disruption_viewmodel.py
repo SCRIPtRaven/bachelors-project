@@ -3,8 +3,9 @@ import queue
 
 from PyQt5 import QtCore
 
-from models.rl.rule_based_resolver import RuleBasedResolver
-from models.rl.simulation_controller import SimulationController
+from models.resolvers.classifier_based_resolver import ClassifierBasedResolver
+from models.resolvers.rule_based_resolver import RuleBasedResolver
+from models.resolvers.simulation_controller import SimulationController
 from models.services.disruption.disruption_service import DisruptionService
 from viewmodels.viewmodel_messenger import MessageType
 from workers.disruption_resolution_worker import DisruptionResolutionWorker
@@ -214,26 +215,22 @@ class DisruptionViewModel(QtCore.QObject):
         """Initialize the disruption resolver"""
         if self.resolver is None:
             if self.G and self.warehouse_location:
-                model_path = "dqn_model.h5"
+                # Check if classifier model exists
+                model_path = "../models/classifier_model.joblib"
 
                 if os.path.exists(model_path):
-                    print("Initializing RL-Based Resolver...")
-                    try:
-                        from models.rl.rl_resolver import RLResolver
-                        self.resolver = RLResolver(
-                            model_path=model_path,
-                            graph=self.G,
-                            warehouse_location=self.warehouse_location
-                        )
-                        return True
-                    except (ImportError, Exception) as e:
-                        print(f"Failed to initialize RL resolver: {e}")
-
-                print("Initializing Rule-Based Resolver...")
-                self.resolver = RuleBasedResolver(
-                    graph=self.G,
-                    warehouse_location=self.warehouse_location
-                )
+                    print("Initializing Classifier-Based Resolver...")
+                    self.resolver = ClassifierBasedResolver(
+                        graph=self.G,
+                        warehouse_location=self.warehouse_location,
+                        model_path=model_path
+                    )
+                else:
+                    print("Initializing Rule-Based Resolver (classifier model not found)...")
+                    self.resolver = RuleBasedResolver(
+                        graph=self.G,
+                        warehouse_location=self.warehouse_location
+                    )
                 return True
             else:
                 print("Cannot initialize resolver: Missing graph or warehouse location.")

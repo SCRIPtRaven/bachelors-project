@@ -74,7 +74,7 @@ def find_accessible_node(G, lat, lon, center_node=None, search_radius=1000):
     max_radius = 5000
     while search_radius <= max_radius:
         try:
-            node_id = ox.nearest_nodes(G, X=lon, Y=lat)
+            node_id = ox.nearest_nodes(G, X=float(lon), Y=float(lat))
             if node_id in G.nodes:
                 if center_node is None or nx.has_path(G, node_id, center_node):
                     node = G.nodes[node_id]

@@ -4,7 +4,6 @@ from PyQt5.QtWidgets import QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLa
 from config.app_settings import UI_COLORS
 from utils.ui_styles import get_button_style
 from views.components.map.map_widget import MapWidget
-from views.dialogs.action_log import ActionLogDialog
 from views.dialogs.city_selector import CitySelector
 
 
@@ -36,9 +35,6 @@ class MainWindow(QWidget):
         self.init_widgets()
         self.init_layout()
         self.connect_signals()
-
-        self.action_log_dialog = ActionLogDialog(self)
-        self.action_log_dialog.hide()
 
     def init_widgets(self):
         """Initialize all widgets but keep them hidden initially"""
@@ -264,22 +260,6 @@ class MainWindow(QWidget):
         right_layout.addWidget(controls_widget, 1)
         right_layout.addWidget(stats_widget, 1)
 
-        toggle_log_button = QtWidgets.QPushButton("Show Disruption Log")
-        toggle_log_button.clicked.connect(self.toggle_action_log)
-        toggle_log_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                padding: 8px 12px;
-                border: none;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-        """)
-        right_layout.addWidget(toggle_log_button)
-
         main_content_layout.addWidget(map_container, 1)
         main_content_layout.addWidget(right_panel, 0)
 
@@ -311,36 +291,3 @@ class MainWindow(QWidget):
         is_greedy = self.solution_switch.isChecked()
         solution_name, button_text = self.map_widget.optimization_viewmodel.toggle_solution_view(is_greedy)
         self.solution_switch.setText(button_text)
-
-    def toggle_action_log(self):
-        print("Toggle action log button clicked")
-
-        try:
-            # Create the dialog if it doesn't exist yet
-            if not hasattr(self, 'action_log_dialog') or self.action_log_dialog is None:
-                self.action_log_dialog = ActionLogDialog(self)
-
-            # Always connect signals when toggling - connections are idempotent
-            if hasattr(self.map_widget, 'disruption_viewmodel'):
-                print("Connecting disruption_viewmodel signals")
-                self.map_widget.disruption_viewmodel.action_log_updated.connect(
-                    self.action_log_dialog.add_log_entry)
-
-            # Toggle visibility
-            if self.action_log_dialog.isVisible():
-                self.action_log_dialog.hide()
-                self.sender().setText("Show Disruption Log")
-            else:
-                self.action_log_dialog.show()
-                self.sender().setText("Hide Disruption Log")
-
-                # Refresh active disruptions on show
-                if hasattr(self.map_widget, 'disruption_viewmodel') and \
-                        hasattr(self.map_widget.disruption_viewmodel, 'active_disruptions'):
-                    self.action_log_dialog.update_active_disruptions(
-                        self.map_widget.disruption_viewmodel.active_disruptions)
-
-        except Exception as e:
-            print(f"Error in toggle_action_log: {e}")
-            import traceback
-            traceback.print_exc()

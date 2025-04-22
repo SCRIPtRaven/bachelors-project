@@ -6,11 +6,6 @@ class ActionType(Enum):
     """Types of actions the disruption resolver can take"""
     RECIPIENT_UNAVAILABLE = auto()
     REROUTE = auto()
-    REASSIGN_DELIVERIES = auto()
-    WAIT = auto()
-    SKIP_DELIVERY = auto()
-    PRIORITIZE_DELIVERY = auto()
-    NO_ACTION = auto()
 
 
 class DisruptionAction:
@@ -22,10 +17,6 @@ class DisruptionAction:
     def execute(self, controller):
         """Execute this action in the simulation"""
         raise NotImplementedError("Subclasses must implement execute()")
-
-    def estimate_cost(self, state):
-        """Estimate the computational cost of executing this action"""
-        raise NotImplementedError("Subclasses must implement estimate_cost()")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert action to a dictionary format for storage/transmission"""
@@ -40,12 +31,6 @@ class DisruptionAction:
 
         if action_type == ActionType.REROUTE:
             return RerouteAction.from_dict(data)
-        elif action_type == ActionType.REASSIGN_DELIVERIES:
-            return ReassignDeliveriesAction.from_dict(data)
-        elif action_type == ActionType.WAIT:
-            return WaitAction.from_dict(data)
-        elif action_type == ActionType.SKIP_DELIVERY:
-            return SkipDeliveryAction.from_dict(data)
         elif action_type == ActionType.RECIPIENT_UNAVAILABLE:
             return RecipientUnavailableAction.from_dict(data)
 
@@ -109,116 +94,6 @@ class RerouteAction(DisruptionAction):
             rerouted_segment_end=data.get('rerouted_segment_end'),
             next_delivery_index=data.get('next_delivery_index'),
             delivery_indices=data.get('delivery_indices', [])
-        )
-
-
-class ReassignDeliveriesAction(DisruptionAction):
-    """Action to transfer deliveries between drivers"""
-
-    def __init__(self, from_driver_id: int, to_driver_id: int, delivery_indices: List[int]):
-        super().__init__(ActionType.REASSIGN_DELIVERIES)
-        self.from_driver_id = from_driver_id
-        self.to_driver_id = to_driver_id
-        self.delivery_indices = delivery_indices
-
-    def execute(self, controller):
-        """Transfer deliveries from one driver to another"""
-        return controller.reassign_deliveries(
-            self.from_driver_id,
-            self.to_driver_id,
-            self.delivery_indices
-        )
-
-    def estimate_cost(self, state):
-        """
-        Estimate computational cost based on number of deliveries
-        and need to recalculate routes for both drivers
-        """
-        num_deliveries = len(self.delivery_indices)
-        return 1.0 + (0.1 * num_deliveries)  # Base cost + per-delivery cost
-
-    def to_dict(self):
-        data = super().to_dict()
-        data.update({
-            'from_driver_id': self.from_driver_id,
-            'to_driver_id': self.to_driver_id,
-            'delivery_indices': self.delivery_indices
-        })
-        return data
-
-    @staticmethod
-    def from_dict(data):
-        return ReassignDeliveriesAction(
-            from_driver_id=data['from_driver_id'],
-            to_driver_id=data['to_driver_id'],
-            delivery_indices=data['delivery_indices']
-        )
-
-
-class WaitAction(DisruptionAction):
-    """Action to instruct a driver to wait for a disruption to clear"""
-
-    def __init__(self, driver_id: int, wait_time: int, disruption_id: int):
-        super().__init__(ActionType.WAIT)
-        self.driver_id = driver_id
-        self.wait_time = wait_time  # Time to wait in seconds
-        self.disruption_id = disruption_id
-
-    def execute(self, controller):
-        """Add wait time to the driver's current activity"""
-        return controller.add_driver_wait_time(self.driver_id, self.wait_time)
-
-    def estimate_cost(self, state):
-        """Wait actions have minimal computational cost"""
-        return 0.1
-
-    def to_dict(self):
-        data = super().to_dict()
-        data.update({
-            'driver_id': self.driver_id,
-            'wait_time': self.wait_time,
-            'disruption_id': self.disruption_id
-        })
-        return data
-
-    @staticmethod
-    def from_dict(data):
-        return WaitAction(
-            driver_id=data['driver_id'],
-            wait_time=data['wait_time'],
-            disruption_id=data['disruption_id']
-        )
-
-
-class SkipDeliveryAction(DisruptionAction):
-    """Action to skip a delivery due to recipient unavailability"""
-
-    def __init__(self, driver_id: int, delivery_index: int):
-        super().__init__(ActionType.SKIP_DELIVERY)
-        self.driver_id = driver_id
-        self.delivery_index = delivery_index
-
-    def execute(self, controller):
-        """Mark delivery as skipped and update route"""
-        return controller.skip_delivery(self.driver_id, self.delivery_index)
-
-    def estimate_cost(self, state):
-        """Skip actions have low computational cost"""
-        return 0.2
-
-    def to_dict(self):
-        data = super().to_dict()
-        data.update({
-            'driver_id': self.driver_id,
-            'delivery_index': self.delivery_index
-        })
-        return data
-
-    @staticmethod
-    def from_dict(data):
-        return SkipDeliveryAction(
-            driver_id=data['driver_id'],
-            delivery_index=data['delivery_index']
         )
 
 

@@ -2,9 +2,9 @@ DEFAULT_NETWORK_TYPE = 'drive'
 SIMULATION_SPEED = 20
 
 ENABLED_DISRUPTION_TYPES = [
-    'traffic_jam',
-    'road_closure',
-    #'recipient_unavailable',
+    #'traffic_jam',
+    #'road_closure',
+    'recipient_unavailable',
 ]
 
 UI_COLORS = {

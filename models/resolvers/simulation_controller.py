@@ -8,9 +8,9 @@ import osmnx as ox
 from PyQt5 import QtCore
 
 from models.entities.disruption import Disruption
-from models.rl.actions import DisruptionAction, RecipientUnavailableAction
-from models.rl.resolver import DisruptionResolver
-from models.rl.state import DeliverySystemState
+from models.resolvers.actions import DisruptionAction, RecipientUnavailableAction
+from models.resolvers.resolver import DisruptionResolver
+from models.resolvers.state import DeliverySystemState
 
 
 class SimulationController(QtCore.QObject):
@@ -369,8 +369,8 @@ class SimulationController(QtCore.QObject):
             return self._route_cache[cache_key]
 
         try:
-            start_node = ox.nearest_nodes(self.G, X=start[1], Y=start[0])
-            end_node = ox.nearest_nodes(self.G, X=end[1], Y=end[0])
+            start_node = ox.nearest_nodes(self.G, X=float(start[1]), Y=float(start[0]))
+            end_node = ox.nearest_nodes(self.G, X=float(end[1]), Y=float(end[0]))
 
             path = nx.shortest_path(self.G, start_node, end_node, weight='travel_time')
 
@@ -592,205 +592,6 @@ class SimulationController(QtCore.QObject):
             import traceback
             traceback.print_exc()
             return False
-
-    def reassign_deliveries(self, from_driver_id: int, to_driver_id: int, delivery_indices: List[int]) -> bool:
-        """
-        Transfer deliveries from one driver to another with enhanced thread safety
-        """
-        try:
-            print(f"Reassigning deliveries from driver {from_driver_id} to driver {to_driver_id}")
-
-            from_assignment = None
-            to_assignment = None
-
-            for a in self.current_solution:
-                if a.driver_id == from_driver_id:
-                    from_assignment = a
-                if a.driver_id == to_driver_id:
-                    to_assignment = a
-
-            if not from_assignment or not to_assignment:
-                print(f"Cannot find assignments for drivers {from_driver_id} and/or {to_driver_id}")
-                return False
-
-            valid_indices = [idx for idx in delivery_indices if idx in from_assignment.delivery_indices]
-            if not valid_indices:
-                print(f"No valid delivery indices to reassign: {delivery_indices}")
-                return False
-
-            to_driver = next((d for d in self.drivers if d.id == to_driver_id), None)
-            if not to_driver:
-                return False
-
-            additional_weight = 0
-            additional_volume = 0
-            for idx in valid_indices:
-                try:
-                    _, _, weight, volume = self.delivery_points[idx]
-                    additional_weight += weight
-                    additional_volume += volume
-                except Exception as e:
-                    print(f"Error getting delivery point {idx}: {e}")
-                    continue
-
-            new_weight = to_assignment.total_weight + additional_weight
-            new_volume = to_assignment.total_volume + additional_volume
-            if new_weight > to_driver.weight_capacity or new_volume > to_driver.volume_capacity:
-                print(f"Capacity exceeded for driver {to_driver_id}")
-                return False
-
-            for idx in valid_indices:
-                if idx in from_assignment.delivery_indices:
-                    from_assignment.delivery_indices.remove(idx)
-                    to_assignment.delivery_indices.append(idx)
-
-            from_assignment.total_weight -= additional_weight
-            from_assignment.total_volume -= additional_volume
-            to_assignment.total_weight += additional_weight
-            to_assignment.total_volume += additional_volume
-
-            try:
-                if from_assignment.delivery_indices:
-                    self.driver_routes[from_driver_id] = self._calculate_route_details(from_assignment)
-                else:
-                    self.driver_routes[from_driver_id] = {
-                        'points': [self.warehouse_location, self.warehouse_location],
-                        'times': [0],
-                        'delivery_indices': [],
-                        'segments': [],
-                        'assignment': from_assignment
-                    }
-
-                self.driver_routes[to_driver_id] = self._calculate_route_details(to_assignment)
-                self.current_estimated_time = self._calculate_total_time()
-
-            except Exception as e:
-                print(f"Error recalculating routes: {e}")
-
-            from_route_points = []
-            to_route_points = []
-
-            if from_driver_id in self.driver_routes and 'points' in self.driver_routes[from_driver_id]:
-                from_route_points = self.driver_routes[from_driver_id]['points']
-
-            if to_driver_id in self.driver_routes and 'points' in self.driver_routes[to_driver_id]:
-                to_route_points = self.driver_routes[to_driver_id]['points']
-
-            if self.route_update_queue:
-                for driver_id, points in [(from_driver_id, from_route_points), (to_driver_id, to_route_points)]:
-                    if points and len(points) >= 2:
-                        route_string = ";".join([f"{lat:.6f},{lon:.6f}" for lat, lon in points])
-                        self.route_update_queue.put((driver_id, route_string))
-                        print(f"SimController: Put route update for driver {driver_id} after reassignment")
-
-                self.route_update_available.emit()
-                print(f"SimController: Emitted route_update_available signal for reassignment")
-
-            from models.rl.actions import RerouteAction
-
-            if from_route_points:
-                if from_driver_id not in self.pending_actions:
-                    self.pending_actions[from_driver_id] = []
-                self.pending_actions[from_driver_id].append(
-                    RerouteAction(driver_id=from_driver_id, new_route=from_route_points, affected_disruption_id=0)
-                )
-
-            if to_route_points:
-                if to_driver_id not in self.pending_actions:
-                    self.pending_actions[to_driver_id] = []
-                self.pending_actions[to_driver_id].append(
-                    RerouteAction(driver_id=to_driver_id, new_route=to_route_points, affected_disruption_id=0)
-                )
-
-            indices_str = ", ".join(map(str, valid_indices))
-            self.action_log.emit(
-                f"Reassigned deliveries {indices_str} from Driver {from_driver_id} to Driver {to_driver_id}")
-
-            return True
-
-        except Exception as e:
-            print(f"Error in reassign_deliveries: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-
-    def skip_delivery(self, driver_id: int, delivery_index: int) -> bool:
-        """
-        Mark a delivery as skipped and update the route
-
-        Args:
-            driver_id: ID of the driver
-            delivery_index: Index of the delivery to skip
-
-        Returns:
-            True if successful, False otherwise
-        """
-        assignment = None
-
-        for a in self.current_solution:
-            if a.driver_id == driver_id:
-                assignment = a
-                break
-
-        if not assignment or delivery_index not in assignment.delivery_indices:
-            return False
-
-        self.skipped_deliveries.add(delivery_index)
-
-        assignment.delivery_indices.remove(delivery_index)
-
-        _, _, weight, volume = self.delivery_points[delivery_index]
-        assignment.total_weight -= weight
-        assignment.total_volume -= volume
-
-        if assignment.delivery_indices:
-            self.driver_routes[driver_id] = self._calculate_route_details(assignment)
-        else:
-            self.driver_routes[driver_id] = {
-                'points': [self.warehouse_location, self.warehouse_location],
-                'times': [0],
-                'delivery_indices': [],
-                'segments': [],
-                'assignment': assignment
-            }
-
-        self.current_estimated_time = self._calculate_total_time()
-
-        self.delivery_skipped.emit(driver_id, delivery_index)
-
-        self.action_log.emit(f"Skipped delivery {delivery_index} for Driver {driver_id}")
-
-        return True
-
-    def add_driver_wait_time(self, driver_id: int, wait_time: float) -> bool:
-        """
-        Add wait time to a driver's current activity
-
-        Args:
-            driver_id: ID of the driver
-            wait_time: Time to wait in seconds
-
-        Returns:
-            True if successful, False otherwise
-        """
-        if driver_id not in self.driver_routes:
-            return False
-
-        route = self.driver_routes[driver_id]
-
-        if 'wait_times' not in route:
-            route['wait_times'] = {}
-
-        route['wait_times'][self.simulation_time] = wait_time
-
-        self.current_estimated_time += wait_time
-
-        self.wait_added.emit(driver_id, wait_time)
-
-        minutes = wait_time / 60
-        self.action_log.emit(f"Added {minutes:.1f} minute wait time for Driver {driver_id}")
-
-        return True
 
     def update_driver_position(self, driver_id, position):
         """

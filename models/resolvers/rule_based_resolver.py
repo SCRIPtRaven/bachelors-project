@@ -5,11 +5,11 @@ import networkx as nx
 import osmnx as ox
 
 from models.entities.disruption import Disruption, DisruptionType
-from models.rl.actions import (
-    DisruptionAction, RerouteAction, ReassignDeliveriesAction
+from models.resolvers.actions import (
+    DisruptionAction, RerouteAction
 )
-from models.rl.resolver import DisruptionResolver
-from models.rl.state import DeliverySystemState
+from models.resolvers.resolver import DisruptionResolver
+from models.resolvers.state import DeliverySystemState
 
 
 class RuleBasedResolver(DisruptionResolver):
@@ -64,7 +64,7 @@ class RuleBasedResolver(DisruptionResolver):
                     for driver_id in affected_drivers:
                         delivery_idx = self._find_affected_delivery(driver_id, disruption, state)
                         if delivery_idx is not None:
-                            from models.rl.actions import RecipientUnavailableAction
+                            from models.resolvers.actions import RecipientUnavailableAction
                             action = RecipientUnavailableAction(
                                 driver_id=driver_id,
                                 delivery_index=delivery_idx,
@@ -112,7 +112,7 @@ class RuleBasedResolver(DisruptionResolver):
                     try:
                         if delivery_idx < len(state.deliveries):
                             delivery = state.deliveries[delivery_idx]
-                            lat, lon = delivery[0], delivery[1]
+                            lat, lon = delivery.coordinates
 
                             distance = self._calculate_distance((lat, lon), disruption.location)
                             if distance <= effective_radius:
@@ -152,7 +152,7 @@ class RuleBasedResolver(DisruptionResolver):
         for delivery_idx in assignments:
             if delivery_idx < len(state.deliveries):
                 delivery = state.deliveries[delivery_idx]
-                lat, lon = delivery[0], delivery[1]
+                lat, lon = delivery.coordinates
 
                 distance_to_disruption = self._calculate_distance(
                     (lat, lon),
@@ -263,7 +263,7 @@ class RuleBasedResolver(DisruptionResolver):
             for idx, point in enumerate(new_route):
                 for delivery_idx in active_assignments:
                     if delivery_idx < len(state.deliveries):
-                        delivery_lat, delivery_lon = state.deliveries[delivery_idx][0:2]
+                        delivery_lat, delivery_lon = state.deliveries[delivery_idx].coordinates
                         delivery_point = (delivery_lat, delivery_lon)
 
                         if self._calculate_distance(point, delivery_point) < 15:  # Within 15m
@@ -355,13 +355,23 @@ class RuleBasedResolver(DisruptionResolver):
         Find a path between points that avoids a disruption area
         """
         try:
+            try:
+                start_point = (float(start_point[0]), float(start_point[1]))
+                end_point = (float(end_point[0]), float(end_point[1]))
+                disruption_location = (float(disruption.location[0]), float(disruption.location[1]))
+                disruption.location = disruption_location  # Update the disruption location
+            except (ValueError, TypeError) as e:
+                print(f"Error converting coordinates to float: {e}")
+                print(f"start_point: {start_point}, end_point: {end_point}, disruption_location: {disruption.location}")
+                return [start_point, end_point]
+
             if not graph:
                 print("No graph available for path finding")
                 return [start_point, end_point]
 
             try:
-                start_node = ox.nearest_nodes(graph, X=start_point[1], Y=start_point[0])
-                end_node = ox.nearest_nodes(graph, X=end_point[1], Y=end_point[0])
+                start_node = ox.nearest_nodes(graph, X=float(start_point[1]), Y=float(start_point[0]))
+                end_node = ox.nearest_nodes(graph, X=float(end_point[1]), Y=float(end_point[0]))
             except Exception as e:
                 print(f"Error finding nearest nodes: {e}")
                 return [start_point, end_point]
@@ -370,7 +380,7 @@ class RuleBasedResolver(DisruptionResolver):
 
             disruption_nodes = []
             affected_edges = 0
-            disruption_radius = disruption.affected_area_radius
+            disruption_radius = float(disruption.affected_area_radius)
 
             search_radius = disruption_radius * 1.2
 
@@ -396,9 +406,19 @@ class RuleBasedResolver(DisruptionResolver):
                     if G_mod.has_edge(node, neighbor):
                         for edge_key in list(G_mod[node][neighbor].keys()):
                             if 'travel_time' in G_mod[node][neighbor][edge_key]:
-                                original_time = G_mod[node][neighbor][edge_key]['travel_time']
-                                G_mod[node][neighbor][edge_key]['travel_time'] = original_time * weight_multiplier
-                                affected_edges += 1
+                                try:
+                                    # Convert travel_time to float before multiplying
+                                    original_time = G_mod[node][neighbor][edge_key]['travel_time']
+                                    if not isinstance(original_time, (int, float)):
+                                        original_time = float(original_time)
+
+                                    # Now multiply safely
+                                    G_mod[node][neighbor][edge_key]['travel_time'] = original_time * weight_multiplier
+                                    affected_edges += 1
+                                except (TypeError, ValueError) as e:
+                                    print(f"Warning: Could not process travel_time for edge ({node}, {neighbor}): {e}")
+                                    # Keep original value instead of failing
+                                    pass
 
             print(f"Modified {affected_edges} edges for disruption avoidance")
 
