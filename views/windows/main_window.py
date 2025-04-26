@@ -1,8 +1,6 @@
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QMessageBox, QWidget, QFrame
 
-from config.app_settings import UI_COLORS
-from utils.ui_styles import get_button_style
 from views.components.map.map_widget import MapWidget
 from views.dialogs.city_selector import CitySelector
 
@@ -83,34 +81,22 @@ class MainWindow(QWidget):
         self.btn_simulate = QPushButton("Simulate Deliveries")
         self.btn_simulate.setEnabled(False)
         self.btn_simulate.hide()
-        self.btn_simulate.setStyleSheet(get_button_style('success'))
-
-        self.solution_switch = QtWidgets.QPushButton("Simulated Annealing")
-        self.solution_switch.setCheckable(True)
-        self.solution_switch.setEnabled(False)
-        self.solution_switch.clicked.connect(self.on_solution_switch_clicked)
-        self.solution_switch.hide()
-        self.solution_switch.setStyleSheet("""
-                QPushButton {
-                    min-height: 35px;
-                    min-width: 200px;
-                    background-color: #4CAF50;
-                    color: white;
-                    border: none;
-                    border-radius: 5px;
-                    padding: 5px 15px;
-                    text-align: center;
-                }
-                QPushButton:checked {
-                    background-color: #2196F3;
-                }
-                QPushButton:hover {
-                    opacity: 0.9;
-                }
-                QPushButton:disabled {
-                    background-color: #cccccc;
-                }
-            """)
+        self.btn_simulate.setStyleSheet("""
+            QPushButton {
+                min-height: 35px;
+                background-color: #FF9800;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 5px 15px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
 
     def init_layout(self):
         """Set up the initial layout with just the load button"""
@@ -215,9 +201,6 @@ class MainWindow(QWidget):
         bottom_layout.addLayout(delivery_controls)
         bottom_layout.addLayout(driver_controls)
         bottom_layout.addWidget(self.btn_tsp)
-        self.solution_switch.setFixedWidth(200)
-        bottom_layout.addSpacing(10)
-        bottom_layout.addWidget(self.solution_switch, alignment=QtCore.Qt.AlignCenter)
         bottom_layout.addSpacing(10)
         bottom_layout.addWidget(self.btn_simulate, alignment=QtCore.Qt.AlignCenter)
         self.btn_simulate.show()
@@ -286,8 +269,3 @@ class MainWindow(QWidget):
         success, message = self.map_widget.driver_viewmodel.validate_and_generate_drivers(self.driver_input.text())
         if not success:
             QMessageBox.warning(self, "Invalid Input", message)
-
-    def on_solution_switch_clicked(self):
-        is_greedy = self.solution_switch.isChecked()
-        solution_name, button_text = self.map_widget.optimization_viewmodel.toggle_solution_view(is_greedy)
-        self.solution_switch.setText(button_text)

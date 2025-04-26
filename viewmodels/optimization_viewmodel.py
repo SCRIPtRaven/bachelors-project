@@ -6,7 +6,7 @@ import networkx as nx
 import osmnx as ox
 from PyQt5 import QtCore
 
-from config.optimization_settings import validate_settings, OPTIMIZATION_SETTINGS
+from config.config import SimulationConfig
 from models.services.optimization.simulated_annealing import SimulatedAnnealingOptimizer
 from utils.route_utils import RouteColorManager
 from viewmodels.viewmodel_messenger import MessageType
@@ -15,7 +15,6 @@ from viewmodels.viewmodel_messenger import MessageType
 class OptimizationViewModel(QtCore.QObject):
     optimization_finished = QtCore.pyqtSignal(object, object)
     visualization_data_ready = QtCore.pyqtSignal(object)
-    solution_switch_available = QtCore.pyqtSignal(bool)
     enable_simulation_button = QtCore.pyqtSignal(bool)
     request_enable_ui = QtCore.pyqtSignal(bool)
 
@@ -54,10 +53,6 @@ class OptimizationViewModel(QtCore.QObject):
         self.delivery_drivers = None
         self.snapped_delivery_points = None
 
-        self.sa_solution = None
-        self.sa_unassigned = None
-        self.greedy_solution = None
-        self.greedy_unassigned = None
         self.current_view = "Simulated Annealing"
 
         self.last_visualized_solution = None
@@ -124,13 +119,7 @@ class OptimizationViewModel(QtCore.QObject):
     def run_optimization(self):
         """Run the optimization process in a worker thread"""
         try:
-            validate_settings()
             self.request_show_loading.emit()
-
-            self.sa_solution = None
-            self.sa_unassigned = None
-            self.greedy_solution = None
-            self.greedy_unassigned = None
 
             self.optimizer = SimulatedAnnealingOptimizer(
                 self.delivery_drivers,
@@ -144,27 +133,10 @@ class OptimizationViewModel(QtCore.QObject):
 
             self.optimizer.update_visualization.connect(self.rate_limited_visualization_update)
             self.optimizer.finished.connect(
-                lambda sol, unassigned: self.on_sa_finished(sol, unassigned)
+                lambda sol, unassigned: self.optimization_finished.emit(sol, unassigned)
             )
 
-            if OPTIMIZATION_SETTINGS['VALIDATE']:
-                from models.services.optimization.greedy import GreedyOptimizer
-
-                self.greedy_optimizer = GreedyOptimizer(
-                    self.delivery_drivers,
-                    self.snapped_delivery_points,
-                    self.G,
-                    self.warehouse_location
-                )
-
-                self.greedy_optimizer.finished.connect(
-                    lambda sol, unassigned: self.on_greedy_finished(sol, unassigned)
-                )
-
-                self.greedy_optimizer.optimize()
-
             self.optimizer.optimize()
-
 
         except Exception as e:
             print(f"Optimization error: {e}")
@@ -488,7 +460,6 @@ class OptimizationViewModel(QtCore.QObject):
             all_detailed_route_points = []
             total_drivers = len(self.delivery_drivers)
 
-            # Calculate expected completion time
             total_expected_time = 0
 
             unassigned_set = self.unassigned_deliveries if isinstance(self.unassigned_deliveries, set) else set(
@@ -553,8 +524,7 @@ class OptimizationViewModel(QtCore.QObject):
                 self.request_start_simulation.emit(simulation_data)
 
                 try:
-                    from config.app_settings import SIMULATION_SPEED
-                    speed = SIMULATION_SPEED
+                    speed = SimulationConfig.SPEED
                 except (ImportError, AttributeError):
                     speed = 25.0
 
@@ -581,65 +551,6 @@ class OptimizationViewModel(QtCore.QObject):
         """Handle disruption visualization data"""
         if 'disruptions' in data and hasattr(self, 'request_load_disruptions'):
             self.request_load_disruptions.emit(data['disruptions'])
-
-    def on_sa_finished(self, solution, unassigned):
-        """Handle SA optimization completion"""
-        self.sa_solution = solution
-        self.sa_unassigned = unassigned
-
-        if not OPTIMIZATION_SETTINGS['VALIDATE'] or self.greedy_solution is not None:
-            self.optimization_finished.emit(solution, unassigned)
-
-    def on_greedy_finished(self, solution, unassigned):
-        """Handle Greedy optimization completion"""
-        self.greedy_solution = solution
-        self.greedy_unassigned = unassigned
-
-        if self.sa_solution is not None:
-            self.optimization_finished.emit(self.sa_solution, self.sa_unassigned)
-
-    def switch_solution_view(self, solution_type):
-        """Switch between SA and Greedy solutions"""
-        if solution_type == "Simulated Annealing":
-            if hasattr(self, 'sa_solution') and self.sa_solution is not None:
-                self.current_view = solution_type
-                unassigned = self.sa_unassigned if isinstance(self.sa_unassigned, (set, list)) else set()
-
-                self.current_solution = self.sa_solution
-                self.unassigned_deliveries = unassigned
-
-                self.request_update_visualization.emit(self.sa_solution, unassigned)
-
-                total_distance, total_time = self._update_statistics(self.sa_solution)
-                self.request_update_stats.emit(
-                    self.last_computation_time,
-                    total_time,
-                    total_distance
-                )
-
-                if self.driver_viewmodel:
-                    driver_stats = self._calculate_driver_statistics(self.sa_solution)
-                    self.driver_viewmodel.update_driver_stats(driver_stats)
-        else:
-            if hasattr(self, 'greedy_solution') and self.greedy_solution is not None:
-                self.current_view = solution_type
-                unassigned = self.greedy_unassigned if isinstance(self.greedy_unassigned, (set, list)) else set()
-
-                self.current_solution = self.greedy_solution
-                self.unassigned_deliveries = unassigned
-
-                self.request_update_visualization.emit(self.greedy_solution, unassigned)
-
-                total_distance, total_time = self._update_statistics(self.greedy_solution)
-                self.request_update_stats.emit(
-                    self.last_computation_time,
-                    total_time,
-                    total_distance
-                )
-
-                if self.driver_viewmodel:
-                    driver_stats = self._calculate_driver_statistics(self.greedy_solution)
-                    self.driver_viewmodel.update_driver_stats(driver_stats)
 
     def handle_driver_selected(self, data):
         """Handle driver selection from DriverViewModel"""
@@ -692,11 +603,6 @@ class OptimizationViewModel(QtCore.QObject):
             self.current_solution = final_solution
             self.unassigned_deliveries = unassigned
 
-            solution_types_available = (OPTIMIZATION_SETTINGS['VALIDATE'] and
-                                        hasattr(self, 'sa_solution') and
-                                        hasattr(self, 'greedy_solution'))
-
-            self.solution_switch_available.emit(solution_types_available)
             self.enable_simulation_button.emit(True)
 
             driver_stats = self._calculate_driver_statistics(final_solution)
@@ -884,18 +790,6 @@ class OptimizationViewModel(QtCore.QObject):
                 not self.delivery_drivers):
             return False, "Please ensure graph data, delivery points, and drivers are all loaded."
         return True, ""
-
-    def toggle_solution_view(self, is_greedy):
-        """Toggle between Simulated Annealing and Greedy solutions"""
-        if is_greedy:
-            solution_type = "Greedy"
-            button_text = "Greedy"
-        else:
-            solution_type = "Simulated Annealing"
-            button_text = "Simulated Annealing"
-
-        self.switch_solution_view(solution_type)
-        return solution_type, button_text
 
     def set_graph(self, graph):
         """Set the graph to be used for optimization"""

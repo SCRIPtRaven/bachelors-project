@@ -1,5 +1,6 @@
-import math
 from colorsys import hsv_to_rgb
+
+from config.config import RouteConfig
 
 
 class RouteColorManager:
@@ -9,29 +10,11 @@ class RouteColorManager:
     """
 
     def __init__(self):
-        self.golden_ratio = (1 + math.sqrt(5)) / 2
-
-        self.base_hues = [
-            0.0,  # Red
-            0.33,  # Green
-            0.66,  # Blue
-            0.15,  # Yellow-Orange
-            0.45,  # Turquoise
-            0.75,  # Purple
-            0.05,  # Orange
-            0.25,  # Yellow-Green
-            0.55,  # Sky Blue
-            0.85  # Magenta
-        ]
-
-        self.saturation_levels = [1.0, 0.85, 0.7]
-        self.brightness_levels = [0.95, 0.75, 0.55]
-
-        self.patterns = [
-            {'type': 'solid', 'weight': 4, 'dash_array': None},
-            {'type': 'dashed', 'weight': 4, 'dash_array': '10, 10'},
-            {'type': 'dotted', 'weight': 4, 'dash_array': '3, 7'}
-        ]
+        self.golden_ratio = RouteConfig.GOLDEN_RATIO
+        self.base_hues = RouteConfig.BASE_HUES
+        self.saturation_levels = RouteConfig.SATURATION_LEVELS
+        self.brightness_levels = RouteConfig.BRIGHTNESS_LEVELS
+        self.patterns = RouteConfig.LINE_PATTERNS
 
         self.style_cache = {}
         self.used_combinations = set()

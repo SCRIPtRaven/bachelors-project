@@ -1,3 +1,4 @@
+import math
 from functools import lru_cache
 
 import networkx as nx
@@ -86,3 +87,20 @@ def find_accessible_node(G, lat, lon, center_node=None, search_radius=1000):
         print(f"Expanding search radius to {search_radius}m")
 
     raise ValueError(f"No accessible node found near ({lat:.6f}, {lon:.6f})")
+
+
+def calculate_haversine_distance(point1, point2):
+    """Calculate the Haversine distance between two points in meters"""
+    lat1, lon1 = point1
+    lat2, lon2 = point2
+
+    lat1, lon1 = math.radians(lat1), math.radians(lon1)
+    lat2, lon2 = math.radians(lat2), math.radians(lon2)
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    c = 2 * math.asin(math.sqrt(a))
+    r = 6371000  # Earth radius in meters
+
+    return c * r

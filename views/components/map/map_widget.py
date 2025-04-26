@@ -53,7 +53,6 @@ class MapWidget(LeafletMapWidget):
         self.optimization_viewmodel.request_show_message.connect(self.show_message)
         self.optimization_viewmodel.request_enable_ui.connect(self.setEnabled)
         self.optimization_viewmodel.visualization_data_ready.connect(self.updateVisualizationFromBackground)
-        self.optimization_viewmodel.solution_switch_available.connect(self.handle_solution_switch_available)
         self.optimization_viewmodel.enable_simulation_button.connect(self.enable_simulation_button)
         self.optimization_viewmodel.request_load_disruptions.connect(self.load_disruptions)
 
@@ -98,19 +97,16 @@ class MapWidget(LeafletMapWidget):
         try:
             js_safe_route_string = route_string.replace('\\', '\\\\').replace("'", "\\'")
 
-            # Parse the route string to get information for the action object
             js_code = f"""
             (function() {{
                 console.log('JS CALL from MapWidget for driver {driver_id}');
 
-                // Find the driver object
                 const driver = simulationDrivers.find(d => d.id === {driver_id});
                 if (!driver) {{
                     console.error('Driver {driver_id} not found');
                     return false;
                 }}
 
-                // Parse the route data
                 let routeData;
                 try {{
                     routeData = JSON.parse('{js_safe_route_string}');
@@ -119,7 +115,6 @@ class MapWidget(LeafletMapWidget):
                     return false;
                 }}
 
-                // Format the points from the route data
                 let routePoints = [];
                 if (routeData.points) {{
                     routePoints = routeData.points.split(';').map(pair => {{
@@ -133,7 +128,6 @@ class MapWidget(LeafletMapWidget):
                     return false;
                 }}
 
-                // Create the action object for handleRerouteAction
                 const action = {{
                     action_type: 'REROUTE',
                     driver_id: {driver_id},
@@ -145,7 +139,6 @@ class MapWidget(LeafletMapWidget):
                     delivery_indices: routeData.delivery_indices || []
                 }};
 
-                // Call handleRerouteAction directly
                 if (typeof handleRerouteAction === 'function') {{
                     handleRerouteAction(driver, action);
                     return true;
@@ -334,12 +327,6 @@ class MapWidget(LeafletMapWidget):
     def hide_loading(self):
         self.execute_js("if (typeof hideLoadingIndicator === 'function') { hideLoadingIndicator(); }")
 
-    def handle_solution_switch_available(self, available):
-        main_window = self.get_main_window()
-        if main_window and hasattr(main_window, 'solution_switch'):
-            main_window.solution_switch.show()
-            main_window.solution_switch.setEnabled(available)
-
     def enable_simulation_button(self, enabled):
         main_window = self.get_main_window()
         if main_window and hasattr(main_window, 'btn_simulate'):
@@ -457,7 +444,7 @@ class MapWidget(LeafletMapWidget):
         """Get the MainWindow instance"""
         parent = self.parent()
         while parent is not None:
-            if isinstance(parent, QtWidgets.QWidget) and hasattr(parent, 'solution_switch'):
+            if isinstance(parent, QtWidgets.QWidget) and hasattr(parent, 'btn_simulate'):
                 return parent
             parent = parent.parent()
         return None

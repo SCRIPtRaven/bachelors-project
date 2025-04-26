@@ -2,7 +2,7 @@ import os
 
 from PyQt5 import QtCore
 
-from config.paths import get_graph_file_path, get_travel_times_path
+from config.config import PathsConfig
 from models.services import graph
 from models.services.graph import download_and_save_graph, get_largest_connected_component
 
@@ -20,8 +20,8 @@ class GraphLoadWorker(QtCore.QThread):
 
     def run(self):
         try:
-            graph_path = get_graph_file_path(self.city_name)
-            travel_times_path = get_travel_times_path(self.city_name)
+            graph_path = PathsConfig.get_graph_file_path(self.city_name)
+            travel_times_path = PathsConfig.get_travel_times_path(self.city_name)
 
             try:
                 G = graph.load_graph(filename=graph_path)

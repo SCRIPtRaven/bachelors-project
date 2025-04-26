@@ -3,8 +3,7 @@ import os
 
 from PyQt5 import QtCore, QtWebEngineWidgets, QtWebChannel
 
-from config.paths import MAP_HTML
-from config.paths import RESOURCES_DIR
+from config.config import PathsConfig
 
 
 class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
@@ -39,10 +38,10 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         if center is None or zoom is None:
             center, zoom = get_city_coordinates("Kaunas, Lithuania")
 
-        template_dir = RESOURCES_DIR / 'templates'
+        template_dir = PathsConfig.RESOURCES_DIR / 'templates'
 
         js_files = ["map.js", "disruptions.js", "simulation_actions.js"]
-        output_dir = os.path.dirname(MAP_HTML)
+        output_dir = os.path.dirname(PathsConfig.MAP_HTML)
 
         for js_file in js_files:
             template_path = os.path.join(template_dir, js_file)
@@ -62,14 +61,14 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         html_content = html_content.replace("{{CENTER_LON}}", str(center[1]))
         html_content = html_content.replace("{{ZOOM_LEVEL}}", str(zoom))
 
-        with open(MAP_HTML, "w", encoding="utf-8") as f:
+        with open(PathsConfig.MAP_HTML, "w", encoding="utf-8") as f:
             f.write(html_content)
 
         self.load_map()
 
     def load_map(self):
         """Load the map HTML file into the view"""
-        url = QtCore.QUrl.fromLocalFile(os.path.abspath(MAP_HTML))
+        url = QtCore.QUrl.fromLocalFile(os.path.abspath(PathsConfig.MAP_HTML))
         self.setUrl(url)
 
     def _on_load_finished(self, ok):

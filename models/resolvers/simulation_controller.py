@@ -11,6 +11,7 @@ from models.entities.disruption import Disruption
 from models.resolvers.actions import DisruptionAction, RecipientUnavailableAction
 from models.resolvers.resolver import DisruptionResolver
 from models.resolvers.state import DeliverySystemState
+from utils.geo_utils import calculate_haversine_distance
 
 
 class SimulationController(QtCore.QObject):
@@ -139,7 +140,7 @@ class SimulationController(QtCore.QObject):
         for i, idx in enumerate(assignment.delivery_indices):
             if idx < len(self.delivery_points):
                 delivery_point = self.delivery_points[idx][:2]
-                distance = self._haversine_distance(current_position, delivery_point)
+                distance = calculate_haversine_distance(current_position, delivery_point)
                 if distance < min_distance:
                     min_distance = distance
                     current_delivery_index = i
@@ -159,7 +160,7 @@ class SimulationController(QtCore.QObject):
         current_route_idx = 0
         min_dist = float('inf')
         for i, point in enumerate(new_route):
-            dist = self._haversine_distance(current_position, point)
+            dist = calculate_haversine_distance(current_position, point)
             if dist < min_dist:
                 min_dist = dist
                 current_route_idx = i
@@ -168,7 +169,7 @@ class SimulationController(QtCore.QObject):
         min_delivery_dist = float('inf')
         for i, point in enumerate(new_route):
             if i > current_route_idx:
-                dist = self._haversine_distance(delivery_point, point)
+                dist = calculate_haversine_distance(delivery_point, point)
                 if dist < min_delivery_dist:
                     min_delivery_dist = dist
                     delivery_route_idx = i
@@ -396,7 +397,7 @@ class SimulationController(QtCore.QObject):
                         segment_time = length / (speed * 1000 / 3600)
                     else:
                         next_point = (self.G.nodes[next_node]['y'], self.G.nodes[next_node]['x'])
-                        distance = self._haversine_distance(point, next_point)
+                        distance = calculate_haversine_distance(point, next_point)
                         segment_time = distance / (50 * 1000 / 3600)
 
                     times.append(segment_time)
@@ -418,8 +419,8 @@ class SimulationController(QtCore.QObject):
             return result
 
         except (nx.NetworkXNoPath, nx.NodeNotFound) as e:
-            direct_distance = self._haversine_distance(start, end)
-            direct_time = direct_distance / (50 * 1000 / 3600)  # 50 km/h
+            direct_distance = calculate_haversine_distance(start, end)
+            direct_time = direct_distance / (50 * 1000 / 3600)
 
             result = {
                 'points': [start, end],
@@ -432,22 +433,6 @@ class SimulationController(QtCore.QObject):
                 self._route_cache[cache_key] = result
 
             return result
-
-    def _haversine_distance(self, point1, point2):
-        """Calculate the Haversine distance between two points in meters"""
-        lat1, lon1 = point1
-        lat2, lon2 = point2
-
-        lat1, lon1 = math.radians(lat1), math.radians(lon1)
-        lat2, lon2 = math.radians(lat2), math.radians(lon2)
-
-        dlon = lon2 - lon1
-        dlat = lat2 - lat1
-        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-        c = 2 * math.asin(math.sqrt(a))
-        r = 6371000
-
-        return c * r
 
     def _calculate_total_time(self):
         """Calculate the estimated total time for all routes"""
@@ -527,8 +512,8 @@ class SimulationController(QtCore.QObject):
                     for delivery_idx in assignment.delivery_indices:
                         if delivery_idx < len(self.delivery_points):
                             delivery_lat, delivery_lon = self.delivery_points[delivery_idx][0:2]
-                            distance = self._haversine_distance(point, (delivery_lat, delivery_lon))
-                            if distance < 15:  # 15m threshold
+                            distance = calculate_haversine_distance(point, (delivery_lat, delivery_lon))
+                            if distance < 15:
                                 route_delivery_indices.append(idx)
                                 print(f"Found delivery point {delivery_idx} at route index {idx}")
                                 break
@@ -549,7 +534,7 @@ class SimulationController(QtCore.QObject):
                     start = new_route[i]
                     end = new_route[i + 1]
                     try:
-                        distance = self._haversine_distance(start, end)
+                        distance = calculate_haversine_distance(start, end)
                         time_seconds = distance / (30 * 1000 / 3600)
                         route_details['times'].append(max(1.0, time_seconds))
                     except Exception as e:

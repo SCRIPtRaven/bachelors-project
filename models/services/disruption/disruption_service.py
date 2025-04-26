@@ -1,8 +1,8 @@
-import math
 import random
 
-from config.app_settings import ENABLED_DISRUPTION_TYPES
+from config.config import DisruptionConfig
 from models.entities.disruption import Disruption, DisruptionType
+from utils.geo_utils import calculate_haversine_distance
 
 
 class DisruptionService:
@@ -44,7 +44,7 @@ class DisruptionService:
 
         generated_count = 0
 
-        for disruption_type in [t for t in DisruptionType if t.value in ENABLED_DISRUPTION_TYPES]:
+        for disruption_type in [t for t in DisruptionType if t.value in DisruptionConfig.ENABLED_TYPES]:
             print(f"Generating a {disruption_type.value} disruption")
             disruption = self._create_specific_disruption(disruption_type)
             if disruption:
@@ -192,7 +192,7 @@ class DisruptionService:
         effective_radius = radius + buffer_distance
 
         if self.warehouse_location:
-            distance = self._haversine_distance(location, self.warehouse_location)
+            distance = calculate_haversine_distance(location, self.warehouse_location)
             warehouse_buffer = buffer_distance * 2
             if distance <= (radius + warehouse_buffer):
                 return True
@@ -200,7 +200,7 @@ class DisruptionService:
         if self.snapped_delivery_points:
             for point in self.snapped_delivery_points:
                 delivery_location = point[:2]
-                distance = self._haversine_distance(location, delivery_location)
+                distance = calculate_haversine_distance(location, delivery_location)
 
                 if distance <= effective_radius:
                     return True
@@ -226,7 +226,7 @@ class DisruptionService:
 
             min_center_distance = existing.affected_area_radius + radius + buffer_distance
 
-            actual_distance = self._haversine_distance(location, existing.location)
+            actual_distance = calculate_haversine_distance(location, existing.location)
 
             if actual_distance < min_center_distance:
                 return True
@@ -235,7 +235,7 @@ class DisruptionService:
 
     def _create_random_disruption(self):
         """Create a random disruption based on type and location constraints"""
-        available_types = [t for t in DisruptionType if t.value in ENABLED_DISRUPTION_TYPES]
+        available_types = [t for t in DisruptionType if t.value in DisruptionConfig.ENABLED_TYPES]
 
         if not available_types:
             return None
@@ -267,7 +267,7 @@ class DisruptionService:
 
         active_disruptions = self.get_active_disruptions(simulation_time)
         for disruption in active_disruptions:
-            distance = self._haversine_distance(point, disruption.location)
+            distance = calculate_haversine_distance(point, disruption.location)
             if distance <= disruption.affected_area_radius:
                 self.location_cache[cache_key] = disruption
                 return disruption
@@ -295,20 +295,6 @@ class DisruptionService:
         else:
             return max(0.5, 1.0 - disruption.severity)
 
-    def _haversine_distance(self, point1, point2):
-        """Calculate distance between two points in meters using Haversine formula"""
-        lat1 = math.radians(point1[0])
-        lon1 = math.radians(point1[1])
-        lat2 = math.radians(point2[0])
-        lon2 = math.radians(point2[1])
-
-        dlon = lon2 - lon1
-        dlat = lat2 - lat1
-        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-        c = 2 * math.asin(math.sqrt(a))
-        r = 6371000
-        return c * r
-
     def check_drivers_near_disruptions(self, driver_positions, driver_routes=None):
         """
         Check if any drivers are close to inactive disruptions and activate them.
@@ -325,7 +311,7 @@ class DisruptionService:
 
         for disruption in eligible_disruptions:
             for driver_id, position in driver_positions.items():
-                distance = self._haversine_distance(position, disruption.location)
+                distance = calculate_haversine_distance(position, disruption.location)
 
                 if distance <= disruption.activation_distance:
                     if self._driver_route_affected(driver_id, disruption, driver_routes):
@@ -362,8 +348,8 @@ class DisruptionService:
 
     def _segment_near_disruption(self, start, end, disruption):
         """Check if a route segment passes near a disruption"""
-        if (self._haversine_distance(start, disruption.location) <= disruption.affected_area_radius or
-                self._haversine_distance(end, disruption.location) <= disruption.affected_area_radius):
+        if (calculate_haversine_distance(start, disruption.location) <= disruption.affected_area_radius or
+                calculate_haversine_distance(end, disruption.location) <= disruption.affected_area_radius):
             return True
 
         closest_distance = self._point_to_segment_distance(
@@ -383,11 +369,11 @@ class DisruptionService:
         segment_length_sq = dx * dx + dy * dy
 
         if segment_length_sq < 1e-10:
-            return self._haversine_distance(point, segment_start)
+            return calculate_haversine_distance(point, segment_start)
 
         t = max(0, min(1, ((p_lat - s_lat) * dx + (p_lon - s_lon) * dy) / segment_length_sq))
 
         closest_lat = s_lat + t * dx
         closest_lon = s_lon + t * dy
 
-        return self._haversine_distance(point, (closest_lat, closest_lon))
+        return calculate_haversine_distance(point, (closest_lat, closest_lon))

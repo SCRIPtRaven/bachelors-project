@@ -4,7 +4,7 @@ import networkx as nx
 import osmnx as ox
 import pandas as pd
 
-from config.app_settings import DEFAULT_NETWORK_TYPE
+from config.config import PathsConfig
 
 
 def download_and_save_graph(place_name="Kaunas, Lithuania"):
@@ -12,11 +12,10 @@ def download_and_save_graph(place_name="Kaunas, Lithuania"):
     Downloads OSM data for the given place, adds speeds and travel times,
     and saves the graph as GraphML.
     """
-    from config.paths import get_graph_file_path
 
-    filename = get_graph_file_path(place_name)
+    filename = PathsConfig.get_graph_file_path(place_name)
 
-    G = ox.graph_from_place(place_name, network_type=DEFAULT_NETWORK_TYPE, simplify=False)
+    G = ox.graph_from_place(place_name, network_type='drive', simplify=False)
     G = ox.add_edge_speeds(G)
     G = ox.add_edge_travel_times(G)
     ox.save_graphml(G, filename)

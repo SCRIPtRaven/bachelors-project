@@ -2,11 +2,17 @@ from typing import List, Tuple
 
 from pydantic import BaseModel, Field, field_validator
 
+from config.config import DeliveryConfig
+
 
 class Delivery(BaseModel):
     coordinates: Tuple[float, float] = Field(..., description="Latitude and longitude")
-    weight: float = Field(..., ge=0.0, le=30, description="Weight in kg")
-    volume: float = Field(..., ge=0.0, le=0.125, description="Volume in cubic meters")
+    weight: float = Field(..., ge=DeliveryConfig.PACKAGE_CONSTRAINTS['weight']['min'],
+                          le=DeliveryConfig.PACKAGE_CONSTRAINTS['weight']['max'],
+                          description="Weight in kg")
+    volume: float = Field(..., ge=DeliveryConfig.PACKAGE_CONSTRAINTS['volume']['min'],
+                          le=DeliveryConfig.PACKAGE_CONSTRAINTS['volume']['max'],
+                          description="Volume in cubic meters")
 
 
 class DeliveryAssignment(BaseModel):

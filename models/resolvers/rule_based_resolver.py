@@ -1,5 +1,5 @@
 import math
-from typing import List, Set, Optional, Tuple
+from typing import List, Set, Optional
 
 import networkx as nx
 import osmnx as ox
@@ -10,6 +10,7 @@ from models.resolvers.actions import (
 )
 from models.resolvers.resolver import DisruptionResolver
 from models.resolvers.state import DeliverySystemState
+from utils.geo_utils import calculate_haversine_distance
 
 
 class RuleBasedResolver(DisruptionResolver):
@@ -101,7 +102,7 @@ class RuleBasedResolver(DisruptionResolver):
                 position = state.driver_positions.get(driver_id)
                 if position:
                     try:
-                        distance = self._calculate_distance(position, disruption.location)
+                        distance = calculate_haversine_distance(position, disruption.location)
                         if distance <= effective_radius:
                             affected_drivers.add(driver_id)
                             continue
@@ -114,7 +115,7 @@ class RuleBasedResolver(DisruptionResolver):
                             delivery = state.deliveries[delivery_idx]
                             lat, lon = delivery.coordinates
 
-                            distance = self._calculate_distance((lat, lon), disruption.location)
+                            distance = calculate_haversine_distance((lat, lon), disruption.location)
                             if distance <= effective_radius:
                                 affected_drivers.add(driver_id)
                                 break
@@ -154,7 +155,7 @@ class RuleBasedResolver(DisruptionResolver):
                 delivery = state.deliveries[delivery_idx]
                 lat, lon = delivery.coordinates
 
-                distance_to_disruption = self._calculate_distance(
+                distance_to_disruption = calculate_haversine_distance(
                     (lat, lon),
                     disruption.location
                 )
@@ -184,7 +185,7 @@ class RuleBasedResolver(DisruptionResolver):
 
             for i, point in enumerate(original_detailed_route):
                 try:
-                    distance = self._calculate_distance(position, point)
+                    distance = calculate_haversine_distance(position, point)
                     if distance < min_distance:
                         min_distance = distance
                         current_segment_start = i
@@ -266,7 +267,7 @@ class RuleBasedResolver(DisruptionResolver):
                         delivery_lat, delivery_lon = state.deliveries[delivery_idx].coordinates
                         delivery_point = (delivery_lat, delivery_lon)
 
-                        if self._calculate_distance(point, delivery_point) < 15:  # Within 15m
+                        if calculate_haversine_distance(point, delivery_point) < 15:
                             delivery_indices.append(idx)
                             break
 
@@ -301,8 +302,8 @@ class RuleBasedResolver(DisruptionResolver):
             bool: True if segment passes within disruption radius
         """
         try:
-            if (self._calculate_distance(start, disruption.location) <= disruption.affected_area_radius or
-                    self._calculate_distance(end, disruption.location) <= disruption.affected_area_radius):
+            if (calculate_haversine_distance(start, disruption.location) <= disruption.affected_area_radius or
+                    calculate_haversine_distance(end, disruption.location) <= disruption.affected_area_radius):
                 return True
 
             closest_distance = self._point_to_segment_distance(disruption.location, start, end)
@@ -329,12 +330,12 @@ class RuleBasedResolver(DisruptionResolver):
             e_lat, e_lon = line_end
 
             if s_lat == e_lat and s_lon == e_lon:
-                return self._calculate_distance(point, line_start)
+                return calculate_haversine_distance(point, line_start)
 
             line_length_sq = (e_lat - s_lat) ** 2 + (e_lon - s_lon) ** 2
 
             if line_length_sq < 1e-10:
-                return self._calculate_distance(point, line_start)
+                return calculate_haversine_distance(point, line_start)
 
             t = max(0, min(1, ((p_lat - s_lat) * (e_lat - s_lat) +
                                (p_lon - s_lon) * (e_lon - s_lon)) / line_length_sq))
@@ -342,11 +343,11 @@ class RuleBasedResolver(DisruptionResolver):
             closest_lat = s_lat + t * (e_lat - s_lat)
             closest_lon = s_lon + t * (e_lon - s_lon)
 
-            return self._calculate_distance(point, (closest_lat, closest_lon))
+            return calculate_haversine_distance(point, (closest_lat, closest_lon))
         except Exception as e:
             print(f"Error in distance calculation: {e}")
             try:
-                return self._calculate_distance(point, line_start)
+                return calculate_haversine_distance(point, line_start)
             except:
                 return float('inf')
 
@@ -359,7 +360,7 @@ class RuleBasedResolver(DisruptionResolver):
                 start_point = (float(start_point[0]), float(start_point[1]))
                 end_point = (float(end_point[0]), float(end_point[1]))
                 disruption_location = (float(disruption.location[0]), float(disruption.location[1]))
-                disruption.location = disruption_location  # Update the disruption location
+                disruption.location = disruption_location
             except (ValueError, TypeError) as e:
                 print(f"Error converting coordinates to float: {e}")
                 print(f"start_point: {start_point}, end_point: {end_point}, disruption_location: {disruption.location}")
@@ -389,7 +390,7 @@ class RuleBasedResolver(DisruptionResolver):
                     continue
 
                 node_point = (data['y'], data['x'])
-                distance = self._calculate_distance(node_point, disruption.location)
+                distance = calculate_haversine_distance(node_point, disruption.location)
                 if distance <= search_radius:
                     disruption_nodes.append(node)
 
@@ -407,17 +408,14 @@ class RuleBasedResolver(DisruptionResolver):
                         for edge_key in list(G_mod[node][neighbor].keys()):
                             if 'travel_time' in G_mod[node][neighbor][edge_key]:
                                 try:
-                                    # Convert travel_time to float before multiplying
                                     original_time = G_mod[node][neighbor][edge_key]['travel_time']
                                     if not isinstance(original_time, (int, float)):
                                         original_time = float(original_time)
 
-                                    # Now multiply safely
                                     G_mod[node][neighbor][edge_key]['travel_time'] = original_time * weight_multiplier
                                     affected_edges += 1
                                 except (TypeError, ValueError) as e:
                                     print(f"Warning: Could not process travel_time for edge ({node}, {neighbor}): {e}")
-                                    # Keep original value instead of failing
                                     pass
 
             print(f"Modified {affected_edges} edges for disruption avoidance")
@@ -517,21 +515,3 @@ class RuleBasedResolver(DisruptionResolver):
             return [start_point,
                     ((start_point[0] + end_point[0]) / 2 + 0.0005, (start_point[1] + end_point[1]) / 2 + 0.0005),
                     end_point]
-
-    def _calculate_distance(self, point1: Tuple[float, float], point2: Tuple[float, float]) -> float:
-        """
-        Calculate the Haversine distance between two points in meters
-        """
-        lat1, lon1 = point1
-        lat2, lon2 = point2
-
-        lat1, lon1 = math.radians(lat1), math.radians(lon1)
-        lat2, lon2 = math.radians(lat2), math.radians(lon2)
-
-        dlon = lon2 - lon1
-        dlat = lat2 - lat1
-        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-        c = 2 * math.asin(math.sqrt(a))
-        r = 6371000
-
-        return c * r

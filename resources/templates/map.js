@@ -599,7 +599,7 @@ function triggerDeliveryAnimation(driver, pointIndex) {
     let size = 15;
     let growing = false;
     const pulseAnimation = setInterval(() => {
-        if (!pulseCircle._map) { // Stop if circle removed early
+        if (!pulseCircle._map) {
             clearInterval(pulseAnimation);
             return;
         }
@@ -659,13 +659,7 @@ function checkForRecipientUnavailable(point) {
         );
 
         const distance = pointLatLng.distanceTo(disruptionPos);
-        if (distance < 5) { // Is the disruption located *at* the delivery point?
-            // Check if this specific delivery point index matches metadata, if available
-            // This assumes metadata contains the original index from snapped_delivery_points
-            // if (disruption.metadata && disruption.metadata.delivery_point_index !== undefined) {
-            //      Need a way to map 'point' back to its original index here... complex.
-            //      For now, location match is sufficient.
-            // }
+        if (distance < 5) {
             return true;
         }
     }
