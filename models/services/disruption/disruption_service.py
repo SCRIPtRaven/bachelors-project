@@ -33,8 +33,8 @@ class DisruptionService:
 
         base_disruptions = num_drivers + (num_delivery_points * 0.1)
 
-        min_disruptions = 5
-        max_disruptions = 15
+        min_disruptions = 20
+        max_disruptions = 22
 
         num_disruptions = min(max_disruptions,
                               max(min_disruptions,
@@ -319,6 +319,12 @@ class DisruptionService:
                             print(
                                 f"Driver {driver_id} triggered disruption {disruption.id} at distance {distance:.1f}m")
                             disruption.affected_driver_ids.add(driver_id)
+                            
+                            if not hasattr(disruption, 'metadata') or disruption.metadata is None:
+                                disruption.metadata = {}
+                            
+                            disruption.metadata['triggered_by_driver'] = driver_id
+                            
                             newly_activated.append(disruption)
                             break
 

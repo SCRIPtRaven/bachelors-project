@@ -85,7 +85,7 @@ class DisruptionViewModel(QtCore.QObject):
 
         except Exception as e:
             print(f"DisruptionVM: Error in _process_queued_route_updates: {e}")
-
+            
     @QtCore.pyqtSlot()
     def _handle_controller_update_available(self):
         """Handles the simple notification. Schedules processing."""
@@ -218,6 +218,8 @@ class DisruptionViewModel(QtCore.QObject):
                     graph=self.G,
                     warehouse_location=self.warehouse_location
                 )
+                if self.simulation_controller:
+                     self.simulation_controller.set_resolver(self.resolver)
                 return True
             else:
                 print("Cannot initialize resolver: Missing graph or warehouse location.")

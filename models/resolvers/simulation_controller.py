@@ -492,11 +492,9 @@ class SimulationController(QtCore.QObject):
                     if a.driver_id == driver_id:
                         assignment = a
                         break
-
                 if not assignment:
                     print(f"No assignment found for driver {driver_id}")
                     return False
-
                 if driver_id not in self.driver_routes:
                     print(f"Driver {driver_id} not found in driver routes - initializing")
                     self.driver_routes[driver_id] = {
@@ -508,21 +506,20 @@ class SimulationController(QtCore.QObject):
                     }
 
                 route_delivery_indices = []
-                for idx, point in enumerate(new_route):
-                    for delivery_idx in assignment.delivery_indices:
-                        if delivery_idx < len(self.delivery_points):
-                            delivery_lat, delivery_lon = self.delivery_points[delivery_idx][0:2]
-                            distance = calculate_haversine_distance(point, (delivery_lat, delivery_lon))
-                            if distance < 15:
-                                route_delivery_indices.append(idx)
-                                print(f"Found delivery point {delivery_idx} at route index {idx}")
-                                break
+                if assignment:
+                    for idx, point in enumerate(new_route):
+                        for delivery_idx in assignment.delivery_indices:
+                            if delivery_idx < len(self.delivery_points):
+                                delivery_lat, delivery_lon = self.delivery_points[delivery_idx][0:2]
+                                distance = calculate_haversine_distance(point, (delivery_lat, delivery_lon))
+                                if distance < 15:
+                                    route_delivery_indices.append(idx)
+                                    break
 
                 route_details = {
                     'points': new_route,
                     'times': [],
                     'delivery_indices': route_delivery_indices,
-                    'original_delivery_indices': assignment.delivery_indices.copy(),
                     'segments': [],
                     'assignment': assignment,
                     'rerouted_segment': (rerouted_segment_start, rerouted_segment_end)
@@ -534,19 +531,26 @@ class SimulationController(QtCore.QObject):
                     start = new_route[i]
                     end = new_route[i + 1]
                     try:
-                        distance = calculate_haversine_distance(start, end)
-                        time_seconds = distance / (30 * 1000 / 3600)
+                        path_details = self._get_path_between(start, end)
+                        time_seconds = path_details.get('total_time', 60.0)
                         route_details['times'].append(max(1.0, time_seconds))
                     except Exception as e:
-                        print(f"Error calculating travel time: {e}")
-                        route_details['times'].append(60.0)
+                        print(f"Error calculating travel time between {start} and {end}: {e}")
+                        try:
+                            distance = calculate_haversine_distance(start, end)
+                            time_seconds = distance / (30 * 1000 / 3600)
+                            route_details['times'].append(max(1.0, time_seconds))
+                        except Exception as dist_e:
+                            print(f"Fallback distance calculation failed: {dist_e}")
+                            route_details['times'].append(60.0)
 
                 self.driver_routes[driver_id] = route_details
-
                 self.current_estimated_time = self._calculate_total_time()
 
                 route_data = {
+                    'type': 'full_route_update',
                     'points': ";".join([f"{lat:.6f},{lon:.6f}" for lat, lon in new_route]),
+                    'times': route_details['times'],
                     'rerouted_segment_start': rerouted_segment_start,
                     'rerouted_segment_end': rerouted_segment_end,
                     'next_delivery_index': next_delivery_index,
@@ -594,15 +598,19 @@ class SimulationController(QtCore.QObject):
                 self.disruption_activated.emit({'disruption_id': disruption.id})
 
     def process_disruption_activation(self, disruption):
-        """Process a newly activated disruption"""
-        self.action_log.emit(f"Disruption activated: {disruption.type.value} (ID: {disruption.id})")
-
-        self.disruption_activated.emit(disruption)
-
-        if self.resolver:
-            actions = self.handle_disruption(disruption)
-            if actions:
-                self.action_count += len(actions)
+        """Process disruption activation and schedule resolution"""
+        try:
+            print(f"Processing disruption activation: {disruption}")
+            if not hasattr(disruption, 'metadata'):
+                disruption.metadata = {}
+            if 'driver_id' in disruption and disruption.driver_id is not None:
+                disruption.metadata['triggered_by_driver'] = disruption.driver_id
+                print(f"Disruption {disruption.id} was triggered by driver {disruption.driver_id}")
+            self.disruption_activated.emit(disruption)
+        except Exception as e:
+            print(f"Error processing disruption activation: {e}")
+            import traceback
+            traceback.print_exc()
 
     def handle_disruption(self, disruption: Disruption) -> List[DisruptionAction]:
         try:
@@ -645,9 +653,9 @@ class SimulationController(QtCore.QObject):
                             successful_actions.append(action)
                             self.action_count += 1
 
-                            if hasattr(action, 'action_type') and action.action_type.name == 'REROUTE':
+                            if hasattr(action, 'action_type') and action.action_type.name == 'REROUTE_BASIC':
                                 print(
-                                    f"handle_disruption: RerouteAction executed successfully for driver {getattr(action, 'driver_id', 'N/A')}.")
+                                    f"handle_disruption: RerouteBasicAction executed successfully for driver {getattr(action, 'driver_id', 'N/A')}.")
                     except Exception as e:
                         print(f"Error executing action: {e}")
                         continue
@@ -670,8 +678,10 @@ class SimulationController(QtCore.QObject):
             print(f"Pending actions for driver {driver_id}: {len(actions)}")
             for i, action in enumerate(actions):
                 print(f"  Action {i}: {action.action_type.name}")
-                if hasattr(action, 'rerouted_segment_start'):
-                    print(f"    Segment: {action.rerouted_segment_start}-{action.rerouted_segment_end}")
+                if hasattr(action, 'rerouted_segment_start') and hasattr(action, 'original_segment_end'):
+                    print(f"    Original Segment: {action.rerouted_segment_start}-{action.original_segment_end}")
+                if hasattr(action, 'detour_points'):
+                    print(f"    Detour Points: {len(action.detour_points)}")
                 if hasattr(action, 'delivery_indices'):
                     print(f"    Delivery indices: {action.delivery_indices}")
 

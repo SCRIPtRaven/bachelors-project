@@ -1,4 +1,5 @@
 from PyQt5 import QtCore, QtWidgets
+import json
 
 from models.resolvers.js_interface import SimulationJsInterface
 from utils.geo_utils import get_city_coordinates
@@ -98,61 +99,59 @@ class MapWidget(LeafletMapWidget):
             js_safe_route_string = route_string.replace('\\', '\\\\').replace("'", "\\'")
 
             js_code = f"""
-            (function() {{
+            (function() {{ 
                 console.log('JS CALL from MapWidget for driver {driver_id}');
 
                 const driver = simulationDrivers.find(d => d.id === {driver_id});
-                if (!driver) {{
-                    console.error('Driver {driver_id} not found');
-                    return false;
-                }}
-
+                if (!driver) {{ console.error('Driver {driver_id} not found'); return false; }}
+                
                 let routeData;
                 try {{
-                    routeData = JSON.parse('{js_safe_route_string}');
-                }} catch (e) {{
-                    console.error('Error parsing route data:', e);
-                    return false;
-                }}
-
+                    routeData = JSON.parse('{js_safe_route_string}'); 
+                }} catch(e) {{ console.error('Error parsing route data:', e); return false; }}
+                
                 let routePoints = [];
                 if (routeData.points) {{
-                    routePoints = routeData.points.split(';').map(pair => {{
-                        const coords = pair.split(',');
-                        return [parseFloat(coords[0]), parseFloat(coords[1])];
+                    routePoints = routeData.points.split(';').map(pair => {{ 
+                        const coords = pair.split(','); 
+                        return [parseFloat(coords[0]), parseFloat(coords[1])]; 
                     }}).filter(p => p[0] && p[1]);
                 }}
-
+                
                 if (routePoints.length < 2) {{
                     console.error('Not enough route points');
                     return false;
                 }}
-
+                
                 const action = {{
-                    action_type: 'REROUTE',
+                    action_type: 'REROUTE_BASIC',
                     driver_id: {driver_id},
                     new_route: routePoints,
-                    affected_disruption_id: routeData.affected_disruption_id || 0,
-                    rerouted_segment_start: routeData.rerouted_segment_start || 0,
-                    rerouted_segment_end: routeData.rerouted_segment_end || 0,
-                    next_delivery_index: routeData.next_delivery_index,
-                    delivery_indices: routeData.delivery_indices || []
+                    times: routeData.times || [], 
+                    delivery_indices: routeData.delivery_indices || [],
+                    rerouted_segment_start: routeData.rerouted_segment_start,
+                    rerouted_segment_end: routeData.rerouted_segment_end
                 }};
-
-                if (typeof handleRerouteAction === 'function') {{
-                    handleRerouteAction(driver, action);
+                
+                if (typeof handleRerouteAction === 'function') {{ 
+                    handleRerouteAction(map, driver, action);
                     return true;
-                }} else {{
+                }} else {{ 
                     console.error('handleRerouteAction function is not available');
                     return false;
                 }}
             }})();
             """
 
-            print(f"MapWidget: Executing JavaScript route update for driver {driver_id}...")
-            self.execute_js(js_code)
+            if js_code:
+                print(f"MapWidget: Executing JS route update (Full Route) for driver {driver_id}...")
+                self.execute_js(js_code)
+            else:
+                 print(f"MapWidget: No JS code generated for route update driver {driver_id}")
+
         except Exception as e:
-            print(f"MapWidget: Error executing JS route update: {e}")
+            print(f"MapWidget: Error processing route update string: {e}")
+            print(f"Route string was: {route_string}") 
             import traceback
             traceback.print_exc()
 

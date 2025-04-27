@@ -6,7 +6,7 @@ import osmnx as ox
 
 from models.entities.disruption import Disruption, DisruptionType
 from models.resolvers.actions import (
-    DisruptionAction, RerouteAction
+    DisruptionAction, RerouteBasicAction, RecipientUnavailableAction
 )
 from models.resolvers.resolver import DisruptionResolver
 from models.resolvers.state import DeliverySystemState
@@ -65,7 +65,6 @@ class RuleBasedResolver(DisruptionResolver):
                     for driver_id in affected_drivers:
                         delivery_idx = self._find_affected_delivery(driver_id, disruption, state)
                         if delivery_idx is not None:
-                            from models.resolvers.actions import RecipientUnavailableAction
                             action = RecipientUnavailableAction(
                                 driver_id=driver_id,
                                 delivery_index=delivery_idx,
@@ -95,6 +94,11 @@ class RuleBasedResolver(DisruptionResolver):
 
             effective_radius = disruption.affected_area_radius * 2
 
+            if 'triggered_by_driver' in disruption.metadata:
+                triggering_driver_id = disruption.metadata['triggered_by_driver']
+                print(f"Disruption {disruption.id} was triggered by driver {triggering_driver_id}")
+                affected_drivers.add(triggering_driver_id)
+
             for driver_id, assignments in state.driver_assignments.items():
                 if not assignments:
                     continue
@@ -106,21 +110,31 @@ class RuleBasedResolver(DisruptionResolver):
                         if distance <= effective_radius:
                             affected_drivers.add(driver_id)
                             continue
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"Error checking driver position: {e}")
 
                 for delivery_idx in assignments:
                     try:
                         if delivery_idx < len(state.deliveries):
                             delivery = state.deliveries[delivery_idx]
-                            lat, lon = delivery.coordinates
+                            lat, lon = delivery[0], delivery[1]
 
                             distance = calculate_haversine_distance((lat, lon), disruption.location)
                             if distance <= effective_radius:
                                 affected_drivers.add(driver_id)
                                 break
-                    except Exception:
+                    except Exception as e:
+                        print(f"Error checking delivery point distance: {e}")
                         continue
+
+                if driver_id in state.driver_routes and 'points' in state.driver_routes[driver_id]:
+                    route_points = state.driver_routes[driver_id]['points']
+                    if len(route_points) >= 2:
+                        for i in range(len(route_points) - 1):
+                            if self._segment_near_disruption(route_points[i], route_points[i + 1], disruption):
+                                affected_drivers.add(driver_id)
+                                print(f"Driver {driver_id} has route segment near disruption {disruption.id}")
+                                break
 
             if not affected_drivers and state.driver_assignments:
                 for driver_id, assignments in state.driver_assignments.items():
@@ -153,7 +167,7 @@ class RuleBasedResolver(DisruptionResolver):
         for delivery_idx in assignments:
             if delivery_idx < len(state.deliveries):
                 delivery = state.deliveries[delivery_idx]
-                lat, lon = delivery.coordinates
+                lat, lon = delivery[0], delivery[1]
 
                 distance_to_disruption = calculate_haversine_distance(
                     (lat, lon),
@@ -166,7 +180,7 @@ class RuleBasedResolver(DisruptionResolver):
         return None
 
     def _create_reroute_action(self, driver_id: int, disruption: Disruption, state: DeliverySystemState) -> Optional[
-        RerouteAction]:
+        RerouteBasicAction]:
         try:
             position = state.driver_positions.get(driver_id)
             if not position:
@@ -194,7 +208,7 @@ class RuleBasedResolver(DisruptionResolver):
 
             print(f"Driver {driver_id} is near point {current_segment_start} of {len(original_detailed_route)}")
 
-            look_ahead = 10
+            look_ahead = 15  # Increased from 10 to check more of the route
 
             affected_segment_start = -1
             affected_segment_end = -1
@@ -209,23 +223,29 @@ class RuleBasedResolver(DisruptionResolver):
                     for j in range(i + 1, min(i + look_ahead, len(original_detailed_route) - 1)):
                         if not self._segment_near_disruption(original_detailed_route[j], original_detailed_route[j + 1],
                                                              disruption):
-                            affected_segment_end = j + 1
+                            affected_segment_end = j  # End is node before clear segment
                             break
-
                     if affected_segment_end == -1:
                         affected_segment_end = min(i + look_ahead, len(original_detailed_route) - 1)
-
                     break
 
             if affected_segment_start == -1:
-                print(f"No affected segment found for driver {driver_id} near disruption {disruption.id}")
-                return None
+                if 'triggered_by_driver' in disruption.metadata and disruption.metadata[
+                    'triggered_by_driver'] == driver_id:
+                    affected_segment_start = current_segment_start
+                    affected_segment_end = min(current_segment_start + 5, len(original_detailed_route) - 1)
+                    print(
+                        f"Driver {driver_id} triggered disruption {disruption.id}, forcing reroute at current position")
+                else:
+                    print(f"No affected segment found for driver {driver_id} near disruption {disruption.id}")
+                    return None
 
             print(
                 f"Found affected segment {affected_segment_start}-{affected_segment_end} out of {len(original_detailed_route)}")
 
             start_point = original_detailed_route[affected_segment_start]
-            end_point = original_detailed_route[affected_segment_end]
+            end_point_index = min(affected_segment_end + 1, len(original_detailed_route) - 1)
+            end_point = original_detailed_route[end_point_index]
 
             detour_points = self._find_path_avoiding_disruption(state.graph, start_point, end_point, disruption)
 
@@ -234,54 +254,39 @@ class RuleBasedResolver(DisruptionResolver):
                 return None
 
             new_route = []
-
             new_route.extend(original_detailed_route[:affected_segment_start])
-
-            if new_route and detour_points and new_route[-1] == detour_points[0]:
+            if new_route and detour_points and calculate_haversine_distance(new_route[-1], detour_points[0]) < 1:
                 new_route.extend(detour_points[1:])
             else:
                 new_route.extend(detour_points)
-
-            if new_route and affected_segment_end + 1 < len(original_detailed_route):
-                if new_route[-1] == original_detailed_route[affected_segment_end + 1]:
-                    new_route.extend(original_detailed_route[affected_segment_end + 2:])
+            if end_point_index + 1 < len(original_detailed_route):
+                remaining_route_start_point = original_detailed_route[end_point_index + 1]
+                if new_route and calculate_haversine_distance(new_route[-1], remaining_route_start_point) < 1:
+                    new_route.extend(original_detailed_route[end_point_index + 2:])
                 else:
-                    new_route.extend(original_detailed_route[affected_segment_end + 1:])
+                    new_route.extend(original_detailed_route[end_point_index + 1:])
+            if len(new_route) < 2: return None
+            print(f"Created new route with {len(new_route)} points.")
 
-            if len(new_route) < 2:
-                print(f"Resulting route has too few points for driver {driver_id}")
-                return None
-
-            print(f"Created new route with {len(new_route)} points, original had {len(original_detailed_route)}")
-
-            active_assignments = state.driver_assignments.get(driver_id, [])
-
-            next_delivery_idx = None
-            if active_assignments:
-                next_delivery_idx = active_assignments[0]
-
+            next_delivery_index = None
             delivery_indices = []
-            for idx, point in enumerate(new_route):
-                for delivery_idx in active_assignments:
-                    if delivery_idx < len(state.deliveries):
-                        delivery_lat, delivery_lon = state.deliveries[delivery_idx].coordinates
-                        delivery_point = (delivery_lat, delivery_lon)
 
-                        if calculate_haversine_distance(point, delivery_point) < 15:
-                            delivery_indices.append(idx)
-                            break
+            if 'delivery_indices' in state.driver_routes.get(driver_id, {}):
+                delivery_indices = state.driver_routes[driver_id]['delivery_indices']
+                if delivery_indices:
+                    next_delivery_index = delivery_indices[0]  # First upcoming delivery
 
-            print(f"Found {len(delivery_indices)} delivery points in the new route")
-
-            return RerouteAction(
+            reroute_action = RerouteBasicAction(
                 driver_id=driver_id,
                 new_route=new_route,
                 affected_disruption_id=disruption.id,
                 rerouted_segment_start=affected_segment_start,
-                rerouted_segment_end=affected_segment_start + len(detour_points) - 1,
-                next_delivery_index=next_delivery_idx,
+                rerouted_segment_end=affected_segment_end,
+                next_delivery_index=next_delivery_index,
                 delivery_indices=delivery_indices
             )
+
+            return reroute_action
 
         except Exception as e:
             print(f"Error creating reroute action: {e}")
@@ -291,23 +296,14 @@ class RuleBasedResolver(DisruptionResolver):
 
     def _segment_near_disruption(self, start, end, disruption):
         """
-        Check if a route segment passes near a disruption
-
-        Args:
-            start: (lat, lon) tuple of segment start
-            end: (lat, lon) tuple of segment end
-            disruption: Disruption object
-
-        Returns:
-            bool: True if segment passes within disruption radius
+        Check if a route segment is affected by a disruption
         """
         try:
-            if (calculate_haversine_distance(start, disruption.location) <= disruption.affected_area_radius or
-                    calculate_haversine_distance(end, disruption.location) <= disruption.affected_area_radius):
-                return True
+            disruption_point = disruption.location
+            min_distance = self._point_to_segment_distance(disruption_point, start, end)
 
-            closest_distance = self._point_to_segment_distance(disruption.location, start, end)
-            return closest_distance <= disruption.affected_area_radius
+            buffer_factor = 1.5
+            return min_distance <= disruption.affected_area_radius * buffer_factor
         except Exception as e:
             print(f"Error in _segment_near_disruption: {e}")
             return True

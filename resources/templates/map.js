@@ -271,7 +271,7 @@ function startSimulation(simulationData) {
     lastClockUpdateTime = Date.now();
 
     simulationData.forEach(route => {
-        if (route.path && route.path.length > 0) {
+        if (route.path && route.path.length > 1) {
             const driverIcon = L.divIcon({
                 className: 'driver-marker',
                 html: `<div class="driver-icon" style="background-color:${route.style.color}">${route.driverId}</div>`,
@@ -406,10 +406,12 @@ function updateSimulation() {
         if (!simulationRunning) return;
 
         const now = Date.now();
-        const realElapsedSeconds = (now - lastClockUpdateTime) / 1000;
+        let timeDelta = (now - lastClockUpdateTime) / 1000;
         lastClockUpdateTime = now;
 
-        const simulationTimeIncrement = realElapsedSeconds * simulationSpeed;
+        timeDelta = Math.min(timeDelta, 0.5);
+
+        const simulationTimeIncrement = timeDelta * simulationSpeed;
         simulationTime += simulationTimeIncrement;
 
         checkPendingDeliveries();
@@ -433,11 +435,9 @@ function updateSimulation() {
 
         let allComplete = true;
 
-        const cappedElapsed = Math.min(realElapsedSeconds, 0.5);
-
         simulationDrivers.forEach(driver => {
             try {
-                if (!driver.isActive) return;
+                if (!driver.isActive || !driver.path || driver.path.length < 2) return;
 
                 if (driver.currentIndex >= driver.path.length - 1) {
                     driver.isActive = false;
@@ -459,40 +459,36 @@ function updateSimulation() {
 
                 checkDriverNearDisruptions(driver);
 
-                const delayFactor = getDriverDelayFactor(driver);
+                let remainingDelta = timeDelta;
 
-                updateDriverDisruptionIndicator(driver, delayFactor);
+                while (remainingDelta > 0 && driver.isActive && driver.currentIndex < driver.path.length - 1) {
+                    const delayFactor = getDriverDelayFactor(driver);
+                    updateDriverDisruptionIndicator(driver, delayFactor);
 
-                driver.elapsedOnSegment += cappedElapsed * simulationSpeed * delayFactor;
-
-                let segmentTime = 10;
-                if (driver.travelTimes && driver.travelTimes.length > driver.currentIndex) {
-                    segmentTime = driver.travelTimes[driver.currentIndex];
-                    if (segmentTime <= 0) {
-                        segmentTime = 10;
+                    let segmentDuration = 10;
+                    if (driver.travelTimes && driver.travelTimes.length > driver.currentIndex) {
+                        segmentDuration = driver.travelTimes[driver.currentIndex];
+                        if (segmentDuration <= 0) {
+                            segmentDuration = 0.01;
+                        }
                     }
-                }
 
-                const progress = driver.elapsedOnSegment / segmentTime;
+                    const speedMultiplier = simulationSpeed * delayFactor;
+                    const effectiveSegmentTime = segmentDuration / (speedMultiplier > 0 ? speedMultiplier : 0.001);
 
-                if (progress >= 1.0) {
-                    driver.completedDistance += segmentTime;
-                    driver.currentIndex++;
-                    driver.elapsedOnSegment = 0;
+                    const timeToFinishSegment = effectiveSegmentTime - driver.elapsedOnSegment;
 
-                    if (driver.currentIndex >= driver.path.length - 1) {
-                        driver.isActive = false;
-                        driver.marker.setLatLng(driver.path[driver.path.length - 1]);
-                    } else {
-                        driver.marker.setLatLng(driver.path[driver.currentIndex]);
-                    }
-                } else if (driver.currentIndex < driver.path.length - 1) {
+                    const timeInSegment = Math.min(remainingDelta, timeToFinishSegment);
+
+                    driver.elapsedOnSegment += timeInSegment;
+
+                    const progress = driver.elapsedOnSegment / effectiveSegmentTime;
+
                     const startPoint = driver.path[driver.currentIndex];
                     const endPoint = driver.path[driver.currentIndex + 1];
                     const newLat = startPoint[0] + (endPoint[0] - startPoint[0]) * progress;
                     const newLng = startPoint[1] + (endPoint[1] - startPoint[1]) * progress;
-                    const newPosition = [newLat, newLng];
-                    driver.marker.setLatLng(newPosition);
+                    driver.marker.setLatLng([newLat, newLng]);
 
                     if (window.simInterface) {
                         window.simInterface.handleEvent(JSON.stringify({
@@ -504,16 +500,34 @@ function updateSimulation() {
                             }
                         }));
                     }
+
+                    if (driver.elapsedOnSegment >= effectiveSegmentTime - 0.0001) {
+                        driver.currentIndex++;
+                        driver.elapsedOnSegment = 0;
+
+                        if (driver.currentIndex < driver.path.length) {
+                            if (driver.deliveryIndices &&
+                                driver.deliveryIndices.includes(driver.currentIndex) &&
+                                !driver.visited.includes(driver.currentIndex)) {
+                                triggerDeliveryAnimation(driver, driver.currentIndex);
+                            }
+                            if (driver.currentIndex === driver.path.length - 1) {
+                                console.log(`Driver ${driver.id} returned to warehouse.`);
+                            }
+                        }
+
+                        if (driver.currentIndex >= driver.path.length - 1) {
+                            driver.isActive = false;
+                            break; 
+                        }
+                    }
+
+                    remainingDelta -= timeInSegment;
                 }
 
-                if (driver.isActive &&
-                    driver.deliveryIndices &&
-                    driver.deliveryIndices.includes(driver.currentIndex) &&
-                    !driver.visited.includes(driver.currentIndex)) {
-                    triggerDeliveryAnimation(driver, driver.currentIndex, simulationTime);
-                }
             } catch (driverError) {
                 console.error(`Error updating driver ${driver.id}:`, driverError);
+                driver.isActive = false;
             }
         });
 

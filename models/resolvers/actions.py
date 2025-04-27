@@ -1,16 +1,15 @@
 from enum import Enum, auto
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 
 class ActionType(Enum):
     """Types of actions the disruption resolver can take"""
     RECIPIENT_UNAVAILABLE = auto()
-    REROUTE = auto()
+    REROUTE_BASIC = auto()
 
 
 class DisruptionAction:
     """Base class for all disruption resolution actions"""
-
     def __init__(self, action_type: ActionType):
         self.action_type = action_type
 
@@ -29,19 +28,23 @@ class DisruptionAction:
         """Create an action instance from dictionary data"""
         action_type = ActionType[data['action_type']]
 
-        if action_type == ActionType.REROUTE:
-            return RerouteAction.from_dict(data)
+        if action_type == ActionType.REROUTE_BASIC:
+            return RerouteBasicAction.from_dict(data)
         elif action_type == ActionType.RECIPIENT_UNAVAILABLE:
             return RecipientUnavailableAction.from_dict(data)
+        raise ValueError(f"Unknown action type: {action_type}")
 
 
-class RerouteAction(DisruptionAction):
+class RerouteBasicAction(DisruptionAction):
     """Action to change a driver's route to avoid a disruption"""
 
-    def __init__(self, driver_id: int, new_route: List[tuple], affected_disruption_id: Optional[int] = None,
-                 rerouted_segment_start: Optional[int] = None, rerouted_segment_end: Optional[int] = None,
-                 next_delivery_index: Optional[int] = None, delivery_indices=None):
-        super().__init__(ActionType.REROUTE)
+    def __init__(self, driver_id: int, new_route: List[Tuple[float, float]],
+                 affected_disruption_id: Optional[int] = None,
+                 rerouted_segment_start: Optional[int] = None,
+                 rerouted_segment_end: Optional[int] = None,
+                 next_delivery_index: Optional[int] = None,
+                 delivery_indices=None):
+        super().__init__(ActionType.REROUTE_BASIC)
         self.driver_id = driver_id
         self.new_route = new_route
         self.affected_disruption_id = affected_disruption_id
@@ -57,8 +60,8 @@ class RerouteAction(DisruptionAction):
               f"segment={self.rerouted_segment_start}-{self.rerouted_segment_end}")
 
         result = controller.update_driver_route(
-            self.driver_id,
-            self.new_route,
+            driver_id=self.driver_id,
+            new_route=self.new_route,
             rerouted_segment_start=self.rerouted_segment_start,
             rerouted_segment_end=self.rerouted_segment_end,
             next_delivery_index=self.next_delivery_index
@@ -86,7 +89,7 @@ class RerouteAction(DisruptionAction):
 
     @staticmethod
     def from_dict(data):
-        return RerouteAction(
+        return RerouteBasicAction(
             driver_id=data['driver_id'],
             new_route=data['new_route'],
             affected_disruption_id=data.get('affected_disruption_id'),

@@ -51,8 +51,8 @@ function executeDriverActions(driver, actions) {
     actions.forEach(action => {
 
         switch (action.action_type) {
-            case 'REROUTE':
-                handleRerouteAction(driver, action);
+            case 'REROUTE_BASIC':
+                handleRerouteAction(map, driver, action);
                 break;
 
             case 'RECIPIENT_UNAVAILABLE':
@@ -74,20 +74,40 @@ function handleRouteUpdate(driver, newRoutePoints, rerouted_segment_start, rerou
     console.log(`Handling route update for driver ${driver.id}: ${newRoutePoints.length} points`);
     console.log(`Rerouted segment: ${rerouted_segment_start}-${rerouted_segment_end}`);
 
-
+    const currentPosition = driver.marker.getLatLng();
     driver.path = newRoutePoints;
 
+    let closestSegmentIndex = 0;
+    let minDistance = Infinity;
+    let progressOnClosestSegment = 0;
 
-    let currentIndex = driver.currentIndex || 0;
-    if (currentIndex >= newRoutePoints.length) {
-        currentIndex = 0;
+    for (let i = 0; i < newRoutePoints.length - 1; i++) {
+        const segmentStart = L.latLng(newRoutePoints[i][0], newRoutePoints[i][1]);
+        const segmentEnd = L.latLng(newRoutePoints[i + 1][0], newRoutePoints[i + 1][1]);
+
+        const closestPoint = L.GeometryUtil.closest(map, [segmentStart, segmentEnd], currentPosition);
+        const distance = currentPosition.distanceTo(closestPoint);
+
+        if (distance < minDistance) {
+            minDistance = distance;
+            closestSegmentIndex = i;
+            const segmentLength = segmentStart.distanceTo(segmentEnd);
+            if (segmentLength > 0) {
+                progressOnClosestSegment = segmentStart.distanceTo(closestPoint) / segmentLength;
+            } else {
+                progressOnClosestSegment = 0;
+            }
+        }
     }
 
+    driver.currentIndex = closestSegmentIndex;
 
-    driver.currentIndex = currentIndex;
+    const segmentStart = L.latLng(newRoutePoints[closestSegmentIndex][0], newRoutePoints[closestSegmentIndex][1]);
+    const segmentEnd = L.latLng(newRoutePoints[closestSegmentIndex + 1][0], newRoutePoints[closestSegmentIndex + 1][1]);
+    const segmentDistance = segmentStart.distanceTo(segmentEnd);
+    const segmentTime = segmentDistance / 8.33;
+    driver.elapsedOnSegment = progressOnClosestSegment * (segmentTime > 0 ? segmentTime : 0.001);
 
-
-    driver.marker.setLatLng(L.latLng(newRoutePoints[currentIndex][0], newRoutePoints[currentIndex][1]));
 
 
     if (driver.routeLines) {
@@ -106,7 +126,6 @@ function handleRouteUpdate(driver, newRoutePoints, rerouted_segment_start, rerou
         });
     }
 
-
     if (driver.deliveryMarkers) {
         driver.deliveryMarkers.forEach(marker => {
             if (marker && typeof marker.remove === 'function') {
@@ -115,14 +134,11 @@ function handleRouteUpdate(driver, newRoutePoints, rerouted_segment_start, rerou
         });
     }
 
-
     driver.routeLines = [];
     driver.reroutedLines = [];
     driver.deliveryMarkers = [];
 
-
     const driverColor = driver.color || '#4285F4';
-
 
     const routeLine = L.polyline(newRoutePoints, {
         color: driverColor,
@@ -131,11 +147,9 @@ function handleRouteUpdate(driver, newRoutePoints, rerouted_segment_start, rerou
     }).addTo(layers.routes);
     driver.routeLines.push(routeLine);
 
-
     if (rerouted_segment_start !== undefined && rerouted_segment_end !== undefined &&
         rerouted_segment_start >= 0 && rerouted_segment_end >= rerouted_segment_start &&
         rerouted_segment_end < newRoutePoints.length) {
-
 
         const rerouteSegment = newRoutePoints.slice(rerouted_segment_start, rerouted_segment_end + 1);
 
@@ -154,12 +168,10 @@ function handleRouteUpdate(driver, newRoutePoints, rerouted_segment_start, rerou
         }
     }
 
-
     if (driver.deliveryIndices) {
         driver.deliveryIndices.forEach(idx => {
             if (idx >= 0 && idx < newRoutePoints.length) {
                 const point = newRoutePoints[idx];
-
 
                 const marker = L.circleMarker(point, {
                     radius: 6,
@@ -173,7 +185,6 @@ function handleRouteUpdate(driver, newRoutePoints, rerouted_segment_start, rerou
             }
         });
     }
-
 
     if (driver.pendingMarkers && affectedDeliveryIndex !== undefined) {
         const remainingMarkers = [];
@@ -191,7 +202,6 @@ function handleRouteUpdate(driver, newRoutePoints, rerouted_segment_start, rerou
         driver.pendingMarkers = remainingMarkers;
     }
 
-
     if (affectedDeliveryIndex !== undefined) {
         if (driver.pendingDeliveries) {
             driver.pendingDeliveries = driver.pendingDeliveries.filter(
@@ -204,31 +214,23 @@ function handleRouteUpdate(driver, newRoutePoints, rerouted_segment_start, rerou
         }
 
         if (driver.visited) {
-
             driver.visited = driver.visited.filter(idx => idx !== affectedDeliveryIndex);
         }
-
 
         driver.recentlyRerouted = driver.recentlyRerouted || [];
         driver.recentlyRerouted.push(affectedDeliveryIndex);
     }
 
+    showActionFeedback(driver, '↩️ Route Updated', '#4CAF50');
 
-    driver.elapsedOnSegment = 0;
-
-
-    showActionFeedback(driver, '↩️ Route Updated - Recipient Available', '#4CAF50');
-
-    console.log(`Route update complete for driver ${driver.id}`);
+    console.log(`Route update complete for driver ${driver.id}. New index: ${driver.currentIndex}, Elapsed: ${driver.elapsedOnSegment.toFixed(2)}s`);
     return true;
 }
 
 function handleRecipientUnavailableAction(driver, action) {
     const deliveryIndex = action.delivery_index;
 
-
     showActionFeedback(driver, 'Recipient Unavailable - Will Try Later', 'orange');
-
 
     if (!driver.pendingDeliveries) driver.pendingDeliveries = [];
     driver.pendingDeliveries.push({
@@ -236,7 +238,6 @@ function handleRecipientUnavailableAction(driver, action) {
         disruption_id: action.disruption_id,
         end_time: currentSimulationTime + action.duration
     });
-
 
     if (deliveryIndex < driver.path.length) {
         const deliveryPoint = driver.path[deliveryIndex];
@@ -265,7 +266,6 @@ function handleRecipientUnavailableAction(driver, action) {
         });
     }
 }
-
 
 function notifyDisruptionResolved(disruption) {
     if (!window.simInterface) return;
@@ -303,98 +303,113 @@ function checkDriverNearDisruptions(driver) {
     });
 }
 
-function handleRerouteAction(driver, action) {
-    if (action.new_route && action.new_route.length > 1) {
-        const formattedRoute = action.new_route;
+function handleRerouteAction(map, driver, action) {
+    if (action.new_route && action.new_route.length >= 2 && action.times) {
+
+        const newRoutePoints = action.new_route;
+        const newTimes = action.times;
+        const newDeliveryIndices = action.delivery_indices || [];
         const reroutedSegmentStart = action.rerouted_segment_start;
         const reroutedSegmentEnd = action.rerouted_segment_end;
         const driverColor = driver.color || '#4285F4';
 
-        console.log(`Handling reroute for driver ${driver.id}: ${formattedRoute.length} points, segment ${reroutedSegmentStart}-${reroutedSegmentEnd}`);
+        console.log(`Handling route update for driver ${driver.id}: ${newRoutePoints.length} points, segment ${reroutedSegmentStart}-${reroutedSegmentEnd}`);
+        console.log(` Received ${newTimes.length} time segments, ${newDeliveryIndices.length} delivery indices.`);
 
+        driver.path = newRoutePoints;
+        driver.times = newTimes;
+        driver.deliveryIndices = newDeliveryIndices;
 
+        if (driver.routeLines) {
+            driver.routeLines.forEach(line => layers.routes.removeLayer(line));
+        }
         if (driver.reroutedLines) {
-            driver.reroutedLines.forEach(line => {
-                if (line && typeof line.remove === 'function') {
-                    layers.routes.removeLayer(line);
-                }
-            });
+            driver.reroutedLines.forEach(line => layers.routes.removeLayer(line));
         }
-        driver.reroutedLines = [];
-
-        driver.path = formattedRoute;
-
-        if (action.delivery_indices && Array.isArray(action.delivery_indices)) {
-            console.log(`Updating delivery indices for driver ${driver.id} to:`, action.delivery_indices);
-            driver.deliveryIndices = action.delivery_indices;
-        }
-
-
         if (driver.deliveryMarkers) {
-            driver.deliveryMarkers.forEach(marker => {
-                if (marker && typeof marker.remove === 'function') {
-                    layers.drivers.removeLayer(marker);
-                }
-            });
+             driver.deliveryMarkers.forEach(marker => layers.drivers.removeLayer(marker));
         }
+        driver.routeLines = [];
+        driver.reroutedLines = [];
         driver.deliveryMarkers = [];
 
+        try {
+             if (driver.path.length >= 2) {
+                  const newRouteLine = L.polyline(driver.path, {
+                       color: driverColor,
+                       weight: 4,
+                       opacity: 0.9
+                  }).addTo(layers.routes);
+                  driver.routeLines.push(newRouteLine);
+             } else {
+                  console.error(`JS handleRerouteAction - ERROR: Path length is ${driver.path.length} before drawing main polyline for driver ${driver.id}.`);
+             }
+        } catch (e) {
+             console.error(`JS handleRerouteAction - ERROR drawing main polyline for driver ${driver.id}:`, e);
+             console.error(`  Path length was: ${driver.path ? driver.path.length : 'N/A'}`);
+        }
+
         if (reroutedSegmentStart !== undefined && reroutedSegmentEnd !== undefined &&
-            reroutedSegmentStart >= 0 && reroutedSegmentEnd >= reroutedSegmentStart) {
+            reroutedSegmentStart >= 0 && reroutedSegmentEnd >= reroutedSegmentStart &&
+            reroutedSegmentEnd < driver.path.length) {
 
-            let reroutedSegment;
-
-            if (reroutedSegmentEnd < formattedRoute.length) {
-                reroutedSegment = formattedRoute.slice(reroutedSegmentStart, reroutedSegmentEnd + 1);
+            const detourSegmentForDrawing = driver.path.slice(reroutedSegmentStart, reroutedSegmentEnd + 1);
+            if (detourSegmentForDrawing.length >= 2) {
+                 console.log(`Drawing rerouted segment with ${detourSegmentForDrawing.length} points`);
+                 try {
+                      const reroutedLine = L.polyline(detourSegmentForDrawing, {
+                           color: '#000000',
+                           weight: 5,
+                           opacity: 1.0,
+                           dashArray: '8, 12'
+                      }).addTo(layers.routes);
+                      reroutedLine.bindPopup(`<div style="text-align:center"><b>Driver ${driver.id}</b><br>Rerouted path</div>`);
+                      driver.reroutedLines.push(reroutedLine);
+                 } catch (e) {
+                      console.error(`JS handleRerouteAction - ERROR drawing detour polyline for driver ${driver.id}:`, e);
+                      console.error(`  Detour segment length was: ${detourSegmentForDrawing.length}`);
+                 }
             } else {
-                reroutedSegment = formattedRoute.slice(reroutedSegmentStart);
-            }
-
-            console.log(`Drawing rerouted segment with ${reroutedSegment.length} points`);
-
-            if (reroutedSegment.length >= 2) {
-                const reroutedLine = L.polyline(reroutedSegment, {
-                    color: '#000000',
-                    weight: 5,
-                    opacity: 1.0,
-                    dashArray: '8, 12'
-                }).addTo(layers.routes);
-
-                reroutedLine.bindPopup(`<div style="text-align:center"><b>Driver ${driver.id}</b><br>Rerouted path to avoid disruption</div>`);
-
-                driver.reroutedLines.push(reroutedLine);
+                 console.warn(`JS handleRerouteAction - Skipping detour drawing for driver ${driver.id}, segment length is ${detourSegmentForDrawing.length}.`);
             }
         }
 
         if (driver.deliveryIndices) {
             driver.deliveryIndices.forEach(idx => {
-                if (idx >= 0 && idx < formattedRoute.length) {
-                    const deliveryPoint = formattedRoute[idx];
-
-                    const deliveryMarker = L.circleMarker(deliveryPoint, {
-                        radius: 6,
-                        color: driverColor,
-                        fillColor: '#ffffff',
-                        fillOpacity: 0.8,
-                        weight: 3
-                    }).addTo(layers.drivers);
-
-                    deliveryMarker.bindPopup(`<div style="text-align:center"><b>Driver ${driver.id}</b><br>Delivery point</div>`);
-
-                    if (!driver.deliveryMarkers) driver.deliveryMarkers = [];
-                    driver.deliveryMarkers.push(deliveryMarker);
+                if (idx >= 0 && idx < driver.path.length) {
+                    const deliveryPoint = driver.path[idx];
+                    try {
+                        const deliveryMarker = L.circleMarker(deliveryPoint, {
+                            radius: 6,
+                            color: driverColor,
+                            fillColor: '#ffffff',
+                            fillOpacity: 0.8,
+                            weight: 3
+                        }).addTo(layers.drivers);
+                        driver.deliveryMarkers.push(deliveryMarker);
+                    } catch(e) {
+                        console.error(`Error drawing delivery marker at index ${idx} for driver ${driver.id}:`, e);
+                    }
+                } else {
+                    console.warn(`Delivery index ${idx} out of bounds for path length ${driver.path.length} for driver ${driver.id}`);
                 }
             });
         }
 
-        if (driver.currentIndex < formattedRoute.length) {
-            driver.marker.setLatLng(formattedRoute[driver.currentIndex]);
-        }
+        console.log(`Main part of handleRerouteAction complete for driver ${driver.id}.`);
 
-        driver.visited = driver.visited || [];
+        showActionFeedback(driver, '↩️ ROUTE UPDATED', '#000');
+
+        const startIndex = (typeof reroutedSegmentStart === 'number' && reroutedSegmentStart >= 0 && reroutedSegmentStart < driver.path.length -1)
+                           ? reroutedSegmentStart
+                           : 0;
+        driver.currentIndex = startIndex;
+        driver.elapsedOnSegment = 0;
+        console.log(`Driver ${driver.id} position reset to index: ${driver.currentIndex}`);
+
+    } else {
+         console.error(`JS: Invalid data received for REROUTE_BASIC action for driver ${driver.id}:`, action);
     }
-
-    showActionFeedback(driver, '↩️ ROUTE UPDATED', '#000');
 }
 
 function showActionFeedback(driver, message, color) {
