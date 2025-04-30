@@ -6,6 +6,9 @@ class ActionType(Enum):
     """Types of actions the disruption resolver can take"""
     RECIPIENT_UNAVAILABLE = auto()
     REROUTE_BASIC = auto()
+    NO_REROUTE = auto()
+    REROUTE_TIGHT_AVOIDANCE = auto()
+    REROUTE_WIDE_AVOIDANCE = auto()
 
 
 class DisruptionAction:
@@ -32,6 +35,12 @@ class DisruptionAction:
             return RerouteBasicAction.from_dict(data)
         elif action_type == ActionType.RECIPIENT_UNAVAILABLE:
             return RecipientUnavailableAction.from_dict(data)
+        elif action_type == ActionType.NO_REROUTE:
+            return NoRerouteAction.from_dict(data)
+        elif action_type == ActionType.REROUTE_TIGHT_AVOIDANCE:
+            return RerouteTightAvoidanceAction.from_dict(data)
+        elif action_type == ActionType.REROUTE_WIDE_AVOIDANCE:
+            return RerouteWideAvoidanceAction.from_dict(data)
         raise ValueError(f"Unknown action type: {action_type}")
 
 
@@ -90,6 +99,130 @@ class RerouteBasicAction(DisruptionAction):
     @staticmethod
     def from_dict(data):
         return RerouteBasicAction(
+            driver_id=data['driver_id'],
+            new_route=data['new_route'],
+            affected_disruption_id=data.get('affected_disruption_id'),
+            rerouted_segment_start=data.get('rerouted_segment_start'),
+            rerouted_segment_end=data.get('rerouted_segment_end'),
+            next_delivery_index=data.get('next_delivery_index'),
+            delivery_indices=data.get('delivery_indices', [])
+        )
+
+
+class NoRerouteAction(DisruptionAction):
+    """Action that deliberately maintains current route despite a disruption"""
+    
+    def __init__(self, driver_id: int, affected_disruption_id: Optional[int] = None):
+        super().__init__(ActionType.NO_REROUTE)
+        self.driver_id = driver_id
+        self.affected_disruption_id = affected_disruption_id
+        
+    def execute(self, controller):
+        """Log that a deliberate decision to not reroute was made"""
+        print(f"NO REROUTE ACTION EXECUTE: driver_id={self.driver_id}")
+        
+        if hasattr(controller, 'action_log'):
+            controller.action_log.emit(
+                f"Maintaining current route for driver {self.driver_id} despite disruption {self.affected_disruption_id}"
+            )
+            
+        if hasattr(controller, 'pending_actions'):
+            if self.driver_id not in controller.pending_actions:
+                controller.pending_actions[self.driver_id] = []
+            controller.pending_actions[self.driver_id].append(self)
+            
+        return True
+    
+    def to_dict(self):
+        data = super().to_dict()
+        data.update({
+            'driver_id': self.driver_id,
+            'affected_disruption_id': self.affected_disruption_id
+        })
+        return data
+    
+    @staticmethod
+    def from_dict(data):
+        return NoRerouteAction(
+            driver_id=data['driver_id'],
+            affected_disruption_id=data.get('affected_disruption_id')
+        )
+
+
+class RerouteTightAvoidanceAction(RerouteBasicAction):
+    """Action to reroute with minimal deviation from original path, staying close to disruption edge"""
+    
+    def __init__(self, driver_id: int, new_route: List[Tuple[float, float]],
+                 affected_disruption_id: Optional[int] = None,
+                 rerouted_segment_start: Optional[int] = None,
+                 rerouted_segment_end: Optional[int] = None,
+                 next_delivery_index: Optional[int] = None,
+                 delivery_indices=None):
+        super().__init__(
+            driver_id=driver_id,
+            new_route=new_route,
+            affected_disruption_id=affected_disruption_id,
+            rerouted_segment_start=rerouted_segment_start,
+            rerouted_segment_end=rerouted_segment_end,
+            next_delivery_index=next_delivery_index,
+            delivery_indices=delivery_indices
+        )
+        self.action_type = ActionType.REROUTE_TIGHT_AVOIDANCE
+    
+    def execute(self, controller):
+        """Update the driver's route with tight avoidance of disruption"""
+        print(f"REROUTE TIGHT AVOIDANCE ACTION EXECUTE: driver_id={self.driver_id}, "
+              f"route_length={len(self.new_route)}, "
+              f"delivery_indices={self.delivery_indices}, "
+              f"segment={self.rerouted_segment_start}-{self.rerouted_segment_end}")
+              
+        return super().execute(controller)
+    
+    @staticmethod
+    def from_dict(data):
+        return RerouteTightAvoidanceAction(
+            driver_id=data['driver_id'],
+            new_route=data['new_route'],
+            affected_disruption_id=data.get('affected_disruption_id'),
+            rerouted_segment_start=data.get('rerouted_segment_start'),
+            rerouted_segment_end=data.get('rerouted_segment_end'),
+            next_delivery_index=data.get('next_delivery_index'),
+            delivery_indices=data.get('delivery_indices', [])
+        )
+
+
+class RerouteWideAvoidanceAction(RerouteBasicAction):
+    """Action to reroute with a wide berth around disruption area"""
+    
+    def __init__(self, driver_id: int, new_route: List[Tuple[float, float]],
+                 affected_disruption_id: Optional[int] = None,
+                 rerouted_segment_start: Optional[int] = None,
+                 rerouted_segment_end: Optional[int] = None,
+                 next_delivery_index: Optional[int] = None,
+                 delivery_indices=None):
+        super().__init__(
+            driver_id=driver_id,
+            new_route=new_route,
+            affected_disruption_id=affected_disruption_id,
+            rerouted_segment_start=rerouted_segment_start,
+            rerouted_segment_end=rerouted_segment_end,
+            next_delivery_index=next_delivery_index,
+            delivery_indices=delivery_indices
+        )
+        self.action_type = ActionType.REROUTE_WIDE_AVOIDANCE
+    
+    def execute(self, controller):
+        """Update the driver's route with wide avoidance of disruption"""
+        print(f"REROUTE WIDE AVOIDANCE ACTION EXECUTE: driver_id={self.driver_id}, "
+              f"route_length={len(self.new_route)}, "
+              f"delivery_indices={self.delivery_indices}, "
+              f"segment={self.rerouted_segment_start}-{self.rerouted_segment_end}")
+              
+        return super().execute(controller)
+    
+    @staticmethod
+    def from_dict(data):
+        return RerouteWideAvoidanceAction(
             driver_id=data['driver_id'],
             new_route=data['new_route'],
             affected_disruption_id=data.get('affected_disruption_id'),

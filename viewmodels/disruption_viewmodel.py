@@ -1,8 +1,10 @@
 import queue
+import os
 
 from PyQt5 import QtCore
 
 from models.resolvers.rule_based_resolver import RuleBasedResolver
+from models.resolvers.ml_classifier_resolver import MLClassifierResolver
 from models.resolvers.simulation_controller import SimulationController
 from models.services.disruption.disruption_service import DisruptionService
 from viewmodels.viewmodel_messenger import MessageType
@@ -213,13 +215,39 @@ class DisruptionViewModel(QtCore.QObject):
         """Initialize the disruption resolver"""
         if self.resolver is None:
             if self.G and self.warehouse_location:
-                print("Initializing Rule-Based Resolver (classifier model not found)...")
-                self.resolver = RuleBasedResolver(
-                    graph=self.G,
-                    warehouse_location=self.warehouse_location
-                )
+                # Try to load ML classifier resolver first
+                try:
+                    print("Initializing ML Classifier Resolver...")
+                    ml_resolver = MLClassifierResolver(
+                        graph=self.G,
+                        warehouse_location=self.warehouse_location
+                    )
+                    
+                    # Check if classifier model was loaded successfully
+                    if ml_resolver.has_classifier():
+                        self.resolver = ml_resolver
+                        print("ML Classifier model loaded successfully.")
+                    else:
+                        # Fall back to rule-based resolver if no model is available
+                        print("ML Classifier model not found, falling back to Rule-Based Resolver...")
+                        self.resolver = RuleBasedResolver(
+                            graph=self.G,
+                            warehouse_location=self.warehouse_location
+                        )
+                except Exception as e:
+                    print(f"Error initializing ML resolver: {e}, falling back to Rule-Based Resolver...")
+                    import traceback
+                    traceback.print_exc()
+                    
+                    # Fall back to rule-based resolver on error
+                    self.resolver = RuleBasedResolver(
+                        graph=self.G,
+                        warehouse_location=self.warehouse_location
+                    )
+                
+                # Set the resolver in the simulation controller if it exists
                 if self.simulation_controller:
-                     self.simulation_controller.set_resolver(self.resolver)
+                    self.simulation_controller.set_resolver(self.resolver)
                 return True
             else:
                 print("Cannot initialize resolver: Missing graph or warehouse location.")

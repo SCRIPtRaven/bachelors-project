@@ -114,3 +114,30 @@ class RouteConfig:
         {'type': 'dashed', 'weight': 4, 'dash_array': '10, 10'},
         {'type': 'dotted', 'weight': 4, 'dash_array': '3, 7'}
     ]
+
+
+class Config:
+    """Main configuration class that combines functionality from all config classes"""
+    
+    def __init__(self):
+        self.city_name = "Kaunas, Lithuania"  # Default city
+        self.warehouse_location = (54.9027, 23.9096)  # Default location in Kaunas
+        self.delivery_points = [
+            (54.9027, 23.9096),  # Example delivery points around Kaunas
+            (54.8985, 23.9036),
+            (54.9065, 23.9138),
+            (54.8957, 23.9241),
+            (54.9112, 23.8972)
+        ]
+    
+    def get_osm_file_path(self):
+        """Get the OSM graph file path for the configured city"""
+        return PathsConfig.get_graph_file_path(self.city_name)
+    
+    def get_warehouse_location(self):
+        """Get the warehouse location coordinates"""
+        return self.warehouse_location
+    
+    def get_delivery_points(self):
+        """Get the list of delivery point coordinates"""
+        return self.delivery_points

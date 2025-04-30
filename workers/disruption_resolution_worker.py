@@ -59,10 +59,36 @@ class DisruptionResolutionWorker(QtCore.QObject):
 
     def _manual_copy_action(self, action):
         """Manually copy an action based on its type"""
-        from models.resolvers.actions import RerouteBasicAction
-        from models.resolvers.actions import RecipientUnavailableAction
+        from models.resolvers.actions import (
+            RerouteBasicAction, 
+            RecipientUnavailableAction,
+            NoRerouteAction,
+            RerouteTightAvoidanceAction,
+            RerouteWideAvoidanceAction
+        )
 
-        if isinstance(action, RerouteBasicAction):
+        # Check for specific action types first (inheritance order matters)
+        if isinstance(action, RerouteTightAvoidanceAction):
+            return RerouteTightAvoidanceAction(
+                driver_id=action.driver_id,
+                new_route=list(action.new_route) if hasattr(action, 'new_route') and action.new_route else [],
+                affected_disruption_id=action.affected_disruption_id,
+                rerouted_segment_start=action.rerouted_segment_start,
+                rerouted_segment_end=getattr(action, 'rerouted_segment_end', None),
+                next_delivery_index=action.next_delivery_index,
+                delivery_indices=list(action.delivery_indices) if action.delivery_indices else []
+            )
+        elif isinstance(action, RerouteWideAvoidanceAction):
+            return RerouteWideAvoidanceAction(
+                driver_id=action.driver_id,
+                new_route=list(action.new_route) if hasattr(action, 'new_route') and action.new_route else [],
+                affected_disruption_id=action.affected_disruption_id,
+                rerouted_segment_start=action.rerouted_segment_start,
+                rerouted_segment_end=getattr(action, 'rerouted_segment_end', None),
+                next_delivery_index=action.next_delivery_index,
+                delivery_indices=list(action.delivery_indices) if action.delivery_indices else []
+            )
+        elif isinstance(action, RerouteBasicAction):
             return RerouteBasicAction(
                 driver_id=action.driver_id,
                 new_route=list(action.new_route) if hasattr(action, 'new_route') and action.new_route else [],
@@ -78,6 +104,11 @@ class DisruptionResolutionWorker(QtCore.QObject):
                 delivery_index=action.delivery_index,
                 disruption_id=action.disruption_id,
                 duration=action.duration
+            )
+        elif isinstance(action, NoRerouteAction):
+            return NoRerouteAction(
+                driver_id=action.driver_id,
+                affected_disruption_id=action.affected_disruption_id
             )
         else:
             print(f"Unknown action type: {type(action).__name__}")
