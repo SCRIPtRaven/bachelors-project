@@ -3,32 +3,31 @@ from typing import List, Dict, Any, Optional, Tuple
 
 
 class ActionType(Enum):
-    """Types of actions the disruption resolver can take"""
     RECIPIENT_UNAVAILABLE = auto()
     REROUTE_BASIC = auto()
     NO_ACTION = auto()
     REROUTE_TIGHT_AVOIDANCE = auto()
     REROUTE_WIDE_AVOIDANCE = auto()
 
+    @property
+    def display_name(self) -> str:
+        return self.name.lower()
+
 
 class DisruptionAction:
-    """Base class for all disruption resolution actions"""
     def __init__(self, action_type: ActionType):
         self.action_type = action_type
 
     def execute(self, controller):
-        """Execute this action in the simulation"""
         raise NotImplementedError("Subclasses must implement execute()")
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert action to a dictionary format for storage/transmission"""
         return {
             'action_type': self.action_type.name
         }
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> 'DisruptionAction':
-        """Create an action instance from dictionary data"""
         action_type = ActionType[data['action_type']]
 
         if action_type == ActionType.REROUTE_BASIC:
@@ -45,8 +44,6 @@ class DisruptionAction:
 
 
 class RerouteBasicAction(DisruptionAction):
-    """Action to change a driver's route to avoid a disruption"""
-
     def __init__(self, driver_id: int, new_route: List[Tuple[float, float]],
                  affected_disruption_id: Optional[int] = None,
                  rerouted_segment_start: Optional[int] = None,
@@ -63,7 +60,6 @@ class RerouteBasicAction(DisruptionAction):
         self.delivery_indices = delivery_indices or []
 
     def execute(self, controller):
-        """Update the driver's route with metadata about the rerouted segment"""
         print(f"REROUTE ACTION EXECUTE: driver_id={self.driver_id}, route_length={len(self.new_route)}, "
               f"delivery_indices={self.delivery_indices}, "
               f"segment={self.rerouted_segment_start}-{self.rerouted_segment_end}")
@@ -110,29 +106,26 @@ class RerouteBasicAction(DisruptionAction):
 
 
 class NoAction(DisruptionAction):
-    """Action that deliberately maintains current route despite a disruption"""
-    
     def __init__(self, driver_id: int, affected_disruption_id: Optional[int] = None):
         super().__init__(ActionType.NO_ACTION)
         self.driver_id = driver_id
         self.affected_disruption_id = affected_disruption_id
-        
+
     def execute(self, controller):
-        """Log that a deliberate decision to not reroute was made"""
         print(f"NO ACTION EXECUTE: driver_id={self.driver_id}")
-        
+
         if hasattr(controller, 'action_log'):
             controller.action_log.emit(
                 f"Maintaining current route for driver {self.driver_id} despite disruption {self.affected_disruption_id}"
             )
-            
+
         if hasattr(controller, 'pending_actions'):
             if self.driver_id not in controller.pending_actions:
                 controller.pending_actions[self.driver_id] = []
             controller.pending_actions[self.driver_id].append(self)
-            
+
         return True
-    
+
     def to_dict(self):
         data = super().to_dict()
         data.update({
@@ -140,7 +133,7 @@ class NoAction(DisruptionAction):
             'affected_disruption_id': self.affected_disruption_id
         })
         return data
-    
+
     @staticmethod
     def from_dict(data):
         return NoAction(
@@ -150,8 +143,6 @@ class NoAction(DisruptionAction):
 
 
 class RerouteTightAvoidanceAction(RerouteBasicAction):
-    """Action to reroute with minimal deviation from original path, staying close to disruption edge"""
-    
     def __init__(self, driver_id: int, new_route: List[Tuple[float, float]],
                  affected_disruption_id: Optional[int] = None,
                  rerouted_segment_start: Optional[int] = None,
@@ -168,16 +159,15 @@ class RerouteTightAvoidanceAction(RerouteBasicAction):
             delivery_indices=delivery_indices
         )
         self.action_type = ActionType.REROUTE_TIGHT_AVOIDANCE
-    
+
     def execute(self, controller):
-        """Update the driver's route with tight avoidance of disruption"""
         print(f"REROUTE TIGHT AVOIDANCE ACTION EXECUTE: driver_id={self.driver_id}, "
               f"route_length={len(self.new_route)}, "
               f"delivery_indices={self.delivery_indices}, "
               f"segment={self.rerouted_segment_start}-{self.rerouted_segment_end}")
-              
+
         return super().execute(controller)
-    
+
     @staticmethod
     def from_dict(data):
         return RerouteTightAvoidanceAction(
@@ -192,8 +182,6 @@ class RerouteTightAvoidanceAction(RerouteBasicAction):
 
 
 class RerouteWideAvoidanceAction(RerouteBasicAction):
-    """Action to reroute with a wide berth around disruption area"""
-    
     def __init__(self, driver_id: int, new_route: List[Tuple[float, float]],
                  affected_disruption_id: Optional[int] = None,
                  rerouted_segment_start: Optional[int] = None,
@@ -210,16 +198,15 @@ class RerouteWideAvoidanceAction(RerouteBasicAction):
             delivery_indices=delivery_indices
         )
         self.action_type = ActionType.REROUTE_WIDE_AVOIDANCE
-    
+
     def execute(self, controller):
-        """Update the driver's route with wide avoidance of disruption"""
         print(f"REROUTE WIDE AVOIDANCE ACTION EXECUTE: driver_id={self.driver_id}, "
               f"route_length={len(self.new_route)}, "
               f"delivery_indices={self.delivery_indices}, "
               f"segment={self.rerouted_segment_start}-{self.rerouted_segment_end}")
-              
+
         return super().execute(controller)
-    
+
     @staticmethod
     def from_dict(data):
         return RerouteWideAvoidanceAction(
@@ -234,8 +221,6 @@ class RerouteWideAvoidanceAction(RerouteBasicAction):
 
 
 class RecipientUnavailableAction(DisruptionAction):
-    """Action to handle unavailable recipient by queueing for later"""
-
     def __init__(self, driver_id: int, delivery_index: int, disruption_id: int, duration: int):
         super().__init__(ActionType.RECIPIENT_UNAVAILABLE)
         self.driver_id = driver_id
@@ -244,7 +229,6 @@ class RecipientUnavailableAction(DisruptionAction):
         self.duration = duration
 
     def execute(self, controller):
-        """Add to pending deliveries and recalculate route"""
         success = controller.handle_recipient_unavailable(
             self.driver_id,
             self.delivery_index,

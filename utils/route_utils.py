@@ -1,18 +1,15 @@
 from colorsys import hsv_to_rgb
-import math
-import networkx as nx
-import osmnx as ox
 from typing import List, Tuple, Optional
 
+import networkx as nx
+import osmnx as ox
+
 from config.config import RouteConfig
+from models.entities.disruption import Disruption, DisruptionType
 from utils.geo_utils import calculate_haversine_distance
 
 
 class RouteColorManager:
-    """
-    Advanced color management system that ensures maximum visual distinction between routes,
-    especially for neighboring routes, using perceptual color spacing and contrast optimization.
-    """
 
     def __init__(self):
         self.golden_ratio = RouteConfig.GOLDEN_RATIO
@@ -25,10 +22,6 @@ class RouteColorManager:
         self.used_combinations = set()
 
     def get_route_style(self, index, total_routes):
-        """
-        Generates a visually distinct style for each route, ensuring neighboring routes
-        are easily distinguishable.
-        """
         cache_key = (index, total_routes)
         if cache_key in self.style_cache:
             return self.style_cache[cache_key]
@@ -68,102 +61,86 @@ class RouteColorManager:
 
 
 def calculate_route_length(route: List[Tuple[float, float]]) -> float:
-    """
-    Calculate the total length of a route in meters
-    
-    Args:
-        route: List of (latitude, longitude) points
-        
-    Returns:
-        Total route length in meters
-    """
     if not route or len(route) < 2:
         return 0.0
-        
+
     total_length = 0.0
     for i in range(len(route) - 1):
         start_point = route[i]
         end_point = route[i + 1]
         segment_length = calculate_haversine_distance(start_point, end_point)
         total_length += segment_length
-        
+
     return total_length
 
 
-def calculate_travel_time(route: List[Tuple[float, float]], graph: Optional[nx.Graph] = None) -> float:
-    """
-    Calculate the estimated travel time for a route in seconds
-    
-    Args:
-        route: List of (latitude, longitude) points
-        graph: Road network graph (optional, used if available for more accurate estimates)
-        
-    Returns:
-        Estimated travel time in seconds
-    """
+def calculate_travel_time(route: List[Tuple[float, float]], graph: Optional[nx.Graph] = None,
+                          disruption: Optional[Disruption] = None) -> float:
     if not route or len(route) < 2:
         return 0.0
-    
-    # If graph is provided, try to use it for more accurate travel time
+
+    if graph is not None and disruption is not None and disruption.type == DisruptionType.ROAD_CLOSURE:
+        disruption_radius = disruption.affected_area_radius
+        for point in route:
+            if calculate_haversine_distance(point, disruption.location) <= disruption_radius:
+                return float('inf')
+
     if graph is not None:
-        try:
-            # Try to map route points to graph nodes
-            total_time = 0.0
-            
-            for i in range(len(route) - 1):
-                start_point = route[i]
-                end_point = route[i + 1]
-                
-                # Get nearest nodes in graph
-                start_node = None
-                end_node = None
-                
-                # Try to find nodes directly
-                try:
-                    start_node = ox.nearest_nodes(graph, X=start_point[1], Y=start_point[0])
-                    end_node = ox.nearest_nodes(graph, X=end_point[1], Y=end_point[0])
-                except Exception:
-                    pass
-                
-                # If nodes found, calculate path and time
-                if start_node is not None and end_node is not None:
-                    try:
-                        path = nx.shortest_path(graph, start_node, end_node, weight='travel_time')
-                        if path:
-                            # Sum travel time along path
-                            segment_time = 0.0
-                            for j in range(len(path) - 1):
-                                u, v = path[j], path[j + 1]
-                                edge_data = graph.get_edge_data(u, v, 0)  # Get edge data
-                                if edge_data and 'travel_time' in edge_data:
-                                    segment_time += edge_data['travel_time']
-                                else:
-                                    # Fallback to distance / average speed
-                                    if 'length' in edge_data:
-                                        # Assume 30 km/h average speed
-                                        segment_time += edge_data['length'] / (30 * 1000 / 3600)
-                            
-                            total_time += segment_time
-                            continue
-                    except Exception:
-                        pass
-                
-                # Fallback to simple distance-based estimate if graph calculation fails
-                distance = calculate_haversine_distance(start_point, end_point)
-                # Assume average speed of 30 km/h for driving (~8.33 m/s)
-                segment_time = distance / 8.33
+        total_time = 0.0
+        for i in range(len(route) - 1):
+            start_point = route[i]
+            end_point = route[i + 1]
+
+            try:
+                start_node = ox.nearest_nodes(graph, X=start_point[1], Y=start_point[0])
+                end_node = ox.nearest_nodes(graph, X=end_point[1], Y=end_point[0])
+
+                if start_node not in graph or end_node not in graph:
+                    return float('inf')
+
+                segment_time = nx.shortest_path_length(graph, source=start_node, target=end_node, weight='travel_time')
                 total_time += segment_time
-            
-            return total_time
-            
-        except Exception:
-            # Fallback to simple calculation below if anything fails
-            pass
-    
-    # Simple calculation based on straight-line distances and average speed
+
+            except (nx.NodeNotFound, nx.NetworkXNoPath):
+                return float('inf')
+            except Exception as e:
+                return float('inf')
+
+        return total_time
+
     total_length = calculate_route_length(route)
-    
-    # Assume average speed of 30 km/h for driving (~8.33 m/s)
-    average_speed = 8.33  # m/s
-    
+    average_speed = 8.33
+    if average_speed <= 0: return float('inf')
     return total_length / average_speed
+
+
+def get_distance_along_route(route_points: List[Tuple[float, float]], target_index: int) -> float:
+    if not route_points or target_index <= 0:
+        return 0.0
+
+    return calculate_route_length(route_points[:target_index + 1])
+
+
+def find_closest_point_index_on_route(route_points: List[Tuple[float, float]], location: Tuple[float, float]) -> int:
+    if not route_points:
+        return -1
+
+    min_dist = float('inf')
+    closest_idx = -1
+    for i, point in enumerate(route_points):
+        dist = calculate_haversine_distance(point, location)
+        if dist < min_dist:
+            min_dist = dist
+            closest_idx = i
+    return closest_idx
+
+
+def find_route_enter_disruption_index(route_points: List[Tuple[float, float]], disruption_location: Tuple[float, float],
+                                      disruption_radius: float, start_index: int = 0) -> int:
+    if not route_points:
+        return -1
+
+    for i in range(start_index, len(route_points)):
+        if calculate_haversine_distance(route_points[i], disruption_location) <= disruption_radius:
+            return i
+    return -1

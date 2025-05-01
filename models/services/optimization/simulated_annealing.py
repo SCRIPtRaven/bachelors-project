@@ -12,21 +12,12 @@ from models.services.optimization.base_optimizer import DeliveryOptimizer
 
 
 class SimulatedAnnealingOptimizer(DeliveryOptimizer):
-    """
-    Optimizer that uses simulated annealing algorithm to find optimal delivery assignments
-    and route ordering by allowing worse solutions early in the optimization process.
-    """
     update_visualization = QtCore.pyqtSignal(object, object)
 
     def __init__(self, delivery_drivers, snapped_delivery_points, G, warehouse_coords):
         super().__init__(delivery_drivers, snapped_delivery_points, G, warehouse_coords)
 
     def optimize(self):
-        """
-        Optimizes delivery assignments using simulated annealing with adaptive cooling.
-        Dynamically adjusts cooling rate based on improvement progress, slowing cooling
-        when finding promising solutions and accelerating when exploration stagnates.
-        """
         try:
             initial_solution, unassigned = self._generate_initial_solution()
             current_solution = deepcopy(initial_solution)
@@ -156,11 +147,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             return None, None
 
     def _generate_initial_solution(self):
-        """
-        Generate an initial solution using the greedy approach that assigns
-        each delivery to the least utilized driver capable of handling it.
-        This produces a balanced initial workload distribution.
-        """
         delivery_indices = list(range(len(self.snapped_delivery_points)))
         delivery_indices.sort(
             key=lambda idx: -(self.snapped_delivery_points[idx][2] / self.snapped_delivery_points[idx][3]))
@@ -210,9 +196,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
         return solution, unassigned
 
     def _generate_neighbor_solution(self, current_solution, current_unassigned):
-        """
-        Generate a neighboring solution by applying a random move.
-        """
         neighbor_solution = deepcopy(current_solution)
         neighbor_unassigned = set(current_unassigned)
 
@@ -223,27 +206,21 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
         )[0]
 
         if move_type == "swap" and len(neighbor_solution) >= 2:
-            # Swap deliveries between two drivers
             self._apply_swap_move(neighbor_solution)
 
         elif move_type == "move" and len(neighbor_solution) >= 2:
-            # Move a delivery from one driver to another
             self._apply_move_move(neighbor_solution)
 
         elif move_type == "reorder":
-            # Reorder deliveries for a driver
             self._apply_reorder_move(neighbor_solution)
 
         elif move_type == "assign" and neighbor_unassigned:
-            # Assign an unassigned delivery
             self._apply_assign_move(neighbor_solution, neighbor_unassigned)
 
         elif move_type == "unassign":
-            # Unassign a delivery
             self._apply_unassign_move(neighbor_solution, neighbor_unassigned)
 
         elif move_type == "balance" and len(neighbor_solution) >= 2:
-            # Balance workload between drivers
             self._apply_balance_move(neighbor_solution)
 
         self._recalculate_assignment_totals(neighbor_solution)
@@ -251,10 +228,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
         return neighbor_solution, neighbor_unassigned
 
     def _apply_balance_move(self, solution):
-        """
-        Apply a move specifically designed to balance workload between drivers.
-        Moves deliveries from the most utilized driver to the least utilized.
-        """
         driver_utils = []
         for i, assignment in enumerate(solution):
             if not assignment.delivery_indices:
@@ -275,7 +248,7 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
         high_idx, high_util = driver_utils[0]
         low_idx, low_util = driver_utils[-1]
 
-        if high_util - low_util < 0.1:  # Less than 10% difference
+        if high_util - low_util < 0.1:
             return
 
         high_assignment = solution[high_idx]
@@ -305,9 +278,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
                 break
 
     def _apply_swap_move(self, solution):
-        """
-        Swap deliveries between two random drivers.
-        """
         valid_assignments = [a for a in solution if a.delivery_indices]
         if len(valid_assignments) < 2:
             return
@@ -342,9 +312,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             self._optimize_route_order(assignment2)
 
     def _apply_move_move(self, solution):
-        """
-        Move a delivery from one driver to another.
-        """
         valid_assignments = [a for a in solution if a.delivery_indices]
         if not valid_assignments:
             return
@@ -375,9 +342,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             self._optimize_route_order(to_assignment)
 
     def _apply_reorder_move(self, solution):
-        """
-        Reorder deliveries for a random driver using 2-opt.
-        """
         valid_assignments = [a for a in solution if len(a.delivery_indices) >= 3]
         if not valid_assignments:
             return
@@ -392,9 +356,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
                 assignment.delivery_indices[pos2], assignment.delivery_indices[pos1]
 
     def _apply_assign_move(self, solution, unassigned):
-        """
-        Try to assign an unassigned delivery to a driver.
-        """
         if not unassigned:
             return
 
@@ -423,9 +384,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             self._optimize_route_order(assignment)
 
     def _apply_unassign_move(self, solution, unassigned):
-        """
-        Unassign a delivery from a driver.
-        """
         valid_assignments = [a for a in solution if a.delivery_indices]
         if not valid_assignments:
             return

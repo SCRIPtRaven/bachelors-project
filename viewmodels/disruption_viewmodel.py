@@ -1,22 +1,15 @@
-import queue
-import os
 import pickle
+import queue
 from pathlib import Path
-import json
-import numpy as np
-from typing import List, Dict, Optional, Set, Any, Union, Tuple, Type
-from datetime import datetime
-import time
 
 from PyQt5 import QtCore
 
-from models.resolvers.rule_based_resolver import RuleBasedResolver
 from models.resolvers.ml_classifier_resolver import MLClassifierResolver
+from models.resolvers.rule_based_resolver import RuleBasedResolver
 from models.resolvers.simulation_controller import SimulationController
 from models.services.disruption.disruption_service import DisruptionService
 from viewmodels.viewmodel_messenger import MessageType
 from workers.disruption_resolution_worker import DisruptionResolutionWorker
-from models.entities.disruption import Disruption, DisruptionType
 
 
 class DisruptionViewModel(QtCore.QObject):
@@ -58,10 +51,8 @@ class DisruptionViewModel(QtCore.QObject):
         self._route_data_cache = {}
         self._route_cache_lock = QtCore.QMutex()
 
-        # ML model type selection (defaults to random_forest)
         self.ml_model_type = 'random_forest'
 
-        # Try to load model configuration
         self._load_model_configuration()
 
         if self.messenger:
@@ -76,7 +67,6 @@ class DisruptionViewModel(QtCore.QObject):
 
     @QtCore.pyqtSlot()
     def _process_queued_route_updates(self):
-        """Processes items from the queue and emits signals to the view."""
         print("DisruptionVM: Timer timeout - processing queued route updates.")
         updated_driver_ids_in_batch = set()
         try:
@@ -102,19 +92,14 @@ class DisruptionViewModel(QtCore.QObject):
 
         except Exception as e:
             print(f"DisruptionVM: Error in _process_queued_route_updates: {e}")
-            
+
     @QtCore.pyqtSlot()
     def _handle_controller_update_available(self):
-        """Handles the simple notification. Schedules processing."""
         print("DisruptionVM: Received route_update_available. Scheduling processing.")
         if not self._processing_timer.isActive():
             self._processing_timer.start()
 
     def initialize_disruption_service(self):
-        """
-        Initialize the disruption service if prerequisites are met and it doesn't exist.
-        Returns True if the service exists (or was successfully created), False otherwise.
-        """
         if self.disruption_service is not None:
             return True
 
@@ -137,7 +122,6 @@ class DisruptionViewModel(QtCore.QObject):
             return False
 
     def handle_route_calculated(self, data):
-        """Handle route calculation messages from other ViewModels"""
         if 'solution' in data:
             solution_id = id(data['solution'])
             if not hasattr(self, '_last_solution_id') or self._last_solution_id != solution_id:
@@ -147,10 +131,6 @@ class DisruptionViewModel(QtCore.QObject):
                     self.disruption_service.set_solution(data['solution'])
 
     def handle_disruption_activated_signal(self, disruption):
-        """
-        Handle disruption activation directly from simulation controller signal.
-        Called when a disruption is activated due to proximity.
-        """
         if isinstance(disruption, dict):
             disruption_id = disruption.get('disruption_id')
             if disruption_id is not None:
@@ -164,7 +144,6 @@ class DisruptionViewModel(QtCore.QObject):
                 print(f"Error: Disruption object has no id attribute: {type(disruption).__name__}")
 
     def initialize_simulation_controller(self):
-        """Initialize the simulation controller if prerequisites are met"""
         if self.simulation_controller is None:
             if (self.G and self.warehouse_location and self.delivery_points and
                     self.drivers and self.current_solution and self.disruption_service):
@@ -222,24 +201,15 @@ class DisruptionViewModel(QtCore.QObject):
         return True
 
     def get_cached_route_update(self, driver_id):
-        """Called by the View (MapWidget) to retrieve the cached data"""
         with QtCore.QMutexLocker(self._route_cache_lock):
             return self._route_data_cache.pop(driver_id, None)
 
     def initialize_resolver(self, ml_model_type=None):
-        """
-        Initialize the disruption resolver
-        
-        Args:
-            ml_model_type (str, optional): Type of ML model to use ('random_forest' or 'neural_network')
-                                        If None, uses the instance's ml_model_type attribute
-        """
         if ml_model_type is not None:
             self.ml_model_type = ml_model_type
-            
+
         if self.resolver is None:
             if self.G and self.warehouse_location:
-                # Try to load ML classifier resolver first
                 try:
                     print(f"Initializing ML Classifier Resolver with model type: {self.ml_model_type}...")
                     ml_resolver = MLClassifierResolver(
@@ -247,14 +217,13 @@ class DisruptionViewModel(QtCore.QObject):
                         warehouse_location=self.warehouse_location,
                         model_type=self.ml_model_type
                     )
-                    
-                    # Check if classifier model was loaded successfully
+
                     if ml_resolver.has_classifier():
                         self.resolver = ml_resolver
                         print(f"ML Classifier model ({self.ml_model_type}) loaded successfully.")
                     else:
-                        # Fall back to rule-based resolver if no model is available
-                        print(f"ML Classifier model ({self.ml_model_type}) not found, falling back to Rule-Based Resolver...")
+                        print(
+                            f"ML Classifier model ({self.ml_model_type}) not found, falling back to Rule-Based Resolver...")
                         self.resolver = RuleBasedResolver(
                             graph=self.G,
                             warehouse_location=self.warehouse_location
@@ -263,14 +232,12 @@ class DisruptionViewModel(QtCore.QObject):
                     print(f"Error initializing ML resolver: {e}, falling back to Rule-Based Resolver...")
                     import traceback
                     traceback.print_exc()
-                    
-                    # Fall back to rule-based resolver on error
+
                     self.resolver = RuleBasedResolver(
                         graph=self.G,
                         warehouse_location=self.warehouse_location
                     )
-                
-                # Set the resolver in the simulation controller if it exists
+
                 if self.simulation_controller:
                     self.simulation_controller.set_resolver(self.resolver)
                 return True
@@ -280,51 +247,34 @@ class DisruptionViewModel(QtCore.QObject):
         return True
 
     def set_ml_model_type(self, model_type):
-        """
-        Set the ML model type to use and re-initialize the resolver if needed
-        
-        Args:
-            model_type (str): 'random_forest' or 'neural_network'
-        
-        Returns:
-            bool: True if successful, False otherwise
-        """
         if model_type not in ['random_forest', 'neural_network']:
             print(f"Warning: Invalid model type '{model_type}'. Must be 'random_forest' or 'neural_network'.")
             return False
-            
-        # Update model type
+
         self.ml_model_type = model_type
-        
-        # Reinitialize resolver if it already exists
+
         if self.resolver is not None:
             print(f"Reinitializing resolver with model type: {model_type}")
-            # Store the previous resolver type for fallback
             prev_resolver_type = type(self.resolver).__name__
-            
-            # Clear the current resolver
+
             self.resolver = None
-            
-            # Attempt to initialize with the new model type
+
             success = self.initialize_resolver(model_type)
-            
-            # Check if we successfully created an ML resolver
+
             if success and isinstance(self.resolver, MLClassifierResolver):
                 print(f"Successfully switched to {model_type} model.")
-                
-                # Update the simulation controller if it exists
+
                 if self.simulation_controller:
                     self.simulation_controller.set_resolver(self.resolver)
-                    
+
                 return True
             else:
                 print(f"Failed to initialize {model_type} model. Current resolver: {type(self.resolver).__name__}")
                 return False
-                
+
         return True
 
     def generate_disruptions(self, num_drivers):
-        """Generate disruptions for the simulation"""
         if hasattr(self, '_disruptions_generated') and self._disruptions_generated:
             return self.disruptions
 
@@ -360,7 +310,6 @@ class DisruptionViewModel(QtCore.QObject):
         return self.disruptions
 
     def get_active_disruptions(self, simulation_time):
-        """Get disruptions active at the given simulation time"""
         if not self.disruption_service:
             return []
 
@@ -375,37 +324,31 @@ class DisruptionViewModel(QtCore.QObject):
         return self.active_disruptions
 
     def check_path_disruptions(self, path, simulation_time):
-        """Check for disruptions along a path"""
         if not self.disruption_service:
             return []
 
         return self.disruption_service.get_path_disruptions(path, simulation_time)
 
     def calculate_delay_factor(self, point, simulation_time):
-        """Calculate delay factor for a point"""
         if not self.disruption_service:
             return 1.0
 
         return self.disruption_service.calculate_delay_factor(point, simulation_time)
 
     def handle_graph_loaded(self, data):
-        """Handle graph loaded from other ViewModels"""
         if 'graph' in data:
             self.G = data['graph']
 
     def handle_warehouse_location(self, data):
-        """Handle warehouse location updates"""
         if 'location' in data:
             self.warehouse_location = data['location']
 
     def handle_delivery_points_updated(self, data):
-        """Handle delivery points updates"""
         if 'points' in data:
             self.delivery_points = data['points']
             self._check_all_components_ready()
 
     def handle_simulation_started(self, data):
-        """Handle simulation start event"""
         if hasattr(self, '_simulation_already_started') and self._simulation_already_started:
             return
         self._simulation_already_started = True
@@ -451,7 +394,6 @@ class DisruptionViewModel(QtCore.QObject):
                 )
 
     def resolve_disruption(self, disruption_id):
-        """Mark a disruption as resolved"""
         if not self.disruption_service:
             return False
 
@@ -467,7 +409,6 @@ class DisruptionViewModel(QtCore.QObject):
         return success
 
     def _check_all_components_ready(self):
-        """Check if all components are ready and initialize if so"""
         if self.disruption_service is None:
             success = self.initialize_disruption_service()
 
@@ -475,13 +416,10 @@ class DisruptionViewModel(QtCore.QObject):
                 self.initialize_resolver()
 
     def handle_drivers_updated(self, data):
-        """Handle driver updates"""
         self.drivers = data
 
     @QtCore.pyqtSlot(str)
     def handle_action_log(self, message):
-        """Handles the single-argument log message from SimulationController
-           and re-emits the two-argument signal for the UI/Log Dialog."""
         print(f"DisruptionVM Log Handler received: {message}")
 
         entry_type = "info"
@@ -512,7 +450,6 @@ class DisruptionViewModel(QtCore.QObject):
             print(f"DisruptionVM: Error emitting action_log_updated: {e}")
 
     def send_disruptions_to_map(self):
-        """Send disruption data to the map for visualization"""
         if self.messenger:
             if hasattr(self, '_last_visualization_sent') and self._last_visualization_sent == id(self.disruptions):
                 return
@@ -540,10 +477,6 @@ class DisruptionViewModel(QtCore.QObject):
             })
 
     def handle_disruption_activated(self, data):
-        """
-        Handle disruption activation event from the simulation.
-        This method safely processes the disruption in a background thread.
-        """
         try:
             disruption_id = data.get('disruption_id')
             if disruption_id in self.processing_disruptions:
@@ -652,19 +585,17 @@ class DisruptionViewModel(QtCore.QObject):
                 print(f"Removed disruption {disruption_id} from processing set")
 
     def handle_disruption_resolved(self, data):
-        """Handle disruption resolution event"""
         disruption_id = data.get('disruption_id')
         self.resolve_disruption(disruption_id)
 
     def _load_model_configuration(self):
-        """Load the model type configuration if it exists"""
         config_file = Path('config') / 'ml_model_config.pkl'
-        
+
         if config_file.exists():
             try:
                 with open(config_file, 'rb') as f:
                     config = pickle.load(f)
-                
+
                 if 'model_type' in config:
                     model_type = config['model_type']
                     if model_type in ['random_forest', 'neural_network']:
@@ -674,4 +605,3 @@ class DisruptionViewModel(QtCore.QObject):
                         print(f"Invalid model type in configuration: {model_type}")
             except Exception as e:
                 print(f"Error loading model configuration: {e}")
-                # Continue with default

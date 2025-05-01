@@ -8,10 +8,6 @@ from models.services.graph import download_and_save_graph, get_largest_connected
 
 
 class GraphLoadWorker(QtCore.QThread):
-    """
-    Worker thread for loading graph data asynchronously.
-    Handles both loading existing graphs and downloading new ones.
-    """
     finished = QtCore.pyqtSignal(bool, str, object, str)
 
     def __init__(self, city_name):

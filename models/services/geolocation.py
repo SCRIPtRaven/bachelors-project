@@ -9,7 +9,6 @@ from models.entities.driver import Driver
 class GeolocationService:
     @staticmethod
     def generate_random_package_properties():
-        """Generate random weight and volume within defined constraints."""
         weight_steps = int((DeliveryConfig.PACKAGE_CONSTRAINTS['weight']['max'] -
                             DeliveryConfig.PACKAGE_CONSTRAINTS['weight']['min']) /
                            DeliveryConfig.PACKAGE_CONSTRAINTS['weight']['step'])
@@ -32,16 +31,6 @@ class GeolocationService:
 
     @staticmethod
     def generate_delivery_points(bounds, num_points):
-        """
-        Generate delivery points using a balanced approach between clustering and spread.
-
-        Args:
-            bounds: Tuple of (min_lat, max_lat, min_lon, max_lon)
-            num_points: Number of delivery points to generate
-
-        Returns:
-            List of DeliveryPoint objects
-        """
         min_lat, max_lat, min_lon, max_lon = bounds
 
         lat_range = max_lat - min_lat
@@ -93,7 +82,6 @@ class GeolocationService:
 
     @staticmethod
     def generate_random_driver_properties():
-        """Generate random weight and volume capacities within defined constraints."""
         weight_steps = int((DeliveryConfig.DRIVER_CONSTRAINTS['weight_capacity']['max'] -
                             DeliveryConfig.DRIVER_CONSTRAINTS['weight_capacity']['min']) /
                            DeliveryConfig.DRIVER_CONSTRAINTS['weight_capacity'][
@@ -118,7 +106,6 @@ class GeolocationService:
 
     @staticmethod
     def generate_delivery_drivers(num_drivers):
-        """Generate the specified number of delivery drivers with random capacities."""
         drivers = []
         for i in range(num_drivers):
             weight_capacity, volume_capacity = GeolocationService.generate_random_driver_properties()

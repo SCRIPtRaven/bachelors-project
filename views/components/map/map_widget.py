@@ -1,5 +1,4 @@
 from PyQt5 import QtCore, QtWidgets
-import json
 
 from models.resolvers.js_interface import SimulationJsInterface
 from utils.geo_utils import get_city_coordinates
@@ -94,7 +93,6 @@ class MapWidget(LeafletMapWidget):
                 f"MapWidget: Warning - No cached route string found for driver {driver_id} (could be race condition or error)")
 
     def _execute_js_route_update(self, driver_id, route_string):
-        """Handles the actual JS execution part"""
         try:
             js_safe_route_string = route_string.replace('\\', '\\\\').replace("'", "\\'")
 
@@ -147,16 +145,15 @@ class MapWidget(LeafletMapWidget):
                 print(f"MapWidget: Executing JS route update (Full Route) for driver {driver_id}...")
                 self.execute_js(js_code)
             else:
-                 print(f"MapWidget: No JS code generated for route update driver {driver_id}")
+                print(f"MapWidget: No JS code generated for route update driver {driver_id}")
 
         except Exception as e:
             print(f"MapWidget: Error processing route update string: {e}")
-            print(f"Route string was: {route_string}") 
+            print(f"Route string was: {route_string}")
             import traceback
             traceback.print_exc()
 
     def handle_js_driver_position(self, driver_id, lat, lon):
-        """Handle driver position updates from JavaScript"""
         if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
             if hasattr(self.disruption_viewmodel, 'simulation_controller') and \
                     self.disruption_viewmodel.simulation_controller:
@@ -164,7 +161,6 @@ class MapWidget(LeafletMapWidget):
                     driver_id, (lat, lon))
 
     def handle_js_disruption_activated(self, disruption_id):
-        """Handle disruption activation from JavaScript"""
         print(f"Python received disruption activation for ID: {disruption_id}")
         if self.messenger:
             self.messenger.send(MessageType.DISRUPTION_ACTIVATED, {
@@ -172,7 +168,6 @@ class MapWidget(LeafletMapWidget):
             })
 
     def handle_delivery_points_processed(self, points, successful, skipped):
-        """Handle processed delivery points"""
         self.add_delivery_points(points)
 
         if skipped > 0:
@@ -184,14 +179,12 @@ class MapWidget(LeafletMapWidget):
             )
 
     def handle_js_disruption_resolved(self, disruption_id):
-        """Handle disruption resolution from JavaScript"""
         if self.messenger:
             self.messenger.send(MessageType.DISRUPTION_RESOLVED, {
                 'disruption_id': disruption_id
             })
 
     def handle_js_delivery_completed(self, driver_id, delivery_index):
-        """Handle delivery completion from JavaScript"""
         if self.messenger:
             self.messenger.send(MessageType.DELIVERY_COMPLETED, {
                 'driver_id': driver_id,
@@ -204,7 +197,6 @@ class MapWidget(LeafletMapWidget):
                 self.disruption_viewmodel.simulation_controller.completed_deliveries.add(delivery_index)
 
     def handle_js_delivery_failed(self, driver_id, delivery_index):
-        """Handle delivery failure from JavaScript"""
         if self.messenger:
             self.messenger.send(MessageType.DELIVERY_FAILED, {
                 'driver_id': driver_id,
@@ -217,7 +209,6 @@ class MapWidget(LeafletMapWidget):
                 self.disruption_viewmodel.simulation_controller.skipped_deliveries.add(delivery_index)
 
     def handle_js_simulation_time(self, simulation_time):
-        """Handle simulation time updates from JavaScript"""
         if self.messenger:
             self.messenger.send(MessageType.SIMULATION_TIME_UPDATED, {
                 'simulation_time': simulation_time
@@ -229,7 +220,6 @@ class MapWidget(LeafletMapWidget):
                 self.disruption_viewmodel.simulation_controller.update_simulation_time(simulation_time)
 
     def update_visualization(self, solution, unassigned_deliveries=None):
-        """Handle visualization updates from the OptimizationViewModel"""
         if isinstance(solution, tuple):
             solution, unassigned = solution
         else:
@@ -238,28 +228,23 @@ class MapWidget(LeafletMapWidget):
         self.addToVisualizationQueue((solution, unassigned))
 
     def handle_disruptions_generated(self, disruptions):
-        """Handle generated disruptions"""
+        pass
 
     def handle_disruption_activated(self, disruption):
-        """Handle disruption activation"""
         print(f"Disruption {disruption.id} activated: {disruption.type.value}")
 
     def handle_disruption_resolved(self, disruption_id):
-        """Handle disruption resolution"""
         print(f"Disruption {disruption_id} resolved")
 
     def load_disruptions(self, disruptions):
-        """Load disruptions onto the map"""
         super().load_disruptions(disruptions)
 
     def handle_warehouse_location_changed(self, location):
-        """Handle warehouse location updates"""
         self.add_warehouse(location[0], location[1])
 
         self.optimization_viewmodel.set_warehouse_location(location)
 
     def update_driver_list(self, drivers):
-        """Handle driver list updates from the ViewModel"""
         layout = self.time_label.parent().layout()
         for i in reversed(range(layout.count())):
             widget = layout.itemAt(i).widget()
@@ -303,7 +288,6 @@ class MapWidget(LeafletMapWidget):
         layout.addWidget(scroll_area)
 
     def update_driver_stats_display(self, formatted_stats):
-        """Update driver labels with stats from the ViewModel"""
         if not self.driver_labels:
             return
 
@@ -314,7 +298,6 @@ class MapWidget(LeafletMapWidget):
                 self.driver_labels[driver_id].setMinimumHeight(80)
 
     def handle_driver_selection(self, driver_id):
-        """Handle driver selection from the ViewModel"""
         self._selected_driver_id = driver_id
 
         for d_id, label in self.driver_labels.items():
@@ -440,7 +423,6 @@ class MapWidget(LeafletMapWidget):
         return valid
 
     def get_main_window(self):
-        """Get the MainWindow instance"""
         parent = self.parent()
         while parent is not None:
             if isinstance(parent, QtWidgets.QWidget) and hasattr(parent, 'btn_simulate'):
@@ -450,7 +432,6 @@ class MapWidget(LeafletMapWidget):
 
     @QtCore.pyqtSlot(object)
     def updateVisualizationFromBackground(self, data):
-        """Update the visualization with data calculated in a background thread"""
         try:
             self.clear_layer("routes")
             self.clear_layer("deliveries")
@@ -472,11 +453,9 @@ class MapWidget(LeafletMapWidget):
             traceback.print_exc()
 
     def get_warehouse_location(self):
-        """Get warehouse location from ViewModel"""
         return self.delivery_viewmodel.get_warehouse_location()
 
     def run_simulation(self):
-        """Run a simulation of the delivery routes"""
         if not hasattr(self.optimization_viewmodel, 'run_simulation'):
             print("Error: OptimizationViewModel does not have run_simulation method.")
             self.show_message("Error", "Simulation functionality not available.", "critical")
@@ -520,7 +499,6 @@ class MapWidget(LeafletMapWidget):
 
     @QtCore.pyqtSlot(object)
     def addToVisualizationQueue(self, data):
-        """Safe method to add items to visualization queue from other threads"""
         self.visualization_queue.append(data)
 
     @property

@@ -2,7 +2,6 @@ from PyQt5 import QtCore
 
 
 class DisruptionResolutionWorker(QtCore.QObject):
-    """Worker class that handles disruption resolution in a separate thread"""
     resolution_complete = QtCore.pyqtSignal(list)
     log_message = QtCore.pyqtSignal(str, str)
     resolution_progress = QtCore.pyqtSignal(str)
@@ -15,7 +14,6 @@ class DisruptionResolutionWorker(QtCore.QObject):
 
     @QtCore.pyqtSlot()
     def resolve_disruption(self):
-        """Resolve the disruption in the worker thread"""
         try:
             self.log_message.emit(
                 f"Starting resolution for {self.disruption.type.value} disruption (ID: {self.disruption.id})",
@@ -58,16 +56,14 @@ class DisruptionResolutionWorker(QtCore.QObject):
             self.resolution_complete.emit([])
 
     def _manual_copy_action(self, action):
-        """Manually copy an action based on its type"""
         from models.resolvers.actions import (
             RerouteBasicAction, 
             RecipientUnavailableAction,
-            NoRerouteAction,
+            NoAction,
             RerouteTightAvoidanceAction,
             RerouteWideAvoidanceAction
         )
 
-        # Check for specific action types first (inheritance order matters)
         if isinstance(action, RerouteTightAvoidanceAction):
             return RerouteTightAvoidanceAction(
                 driver_id=action.driver_id,
@@ -105,8 +101,8 @@ class DisruptionResolutionWorker(QtCore.QObject):
                 disruption_id=action.disruption_id,
                 duration=action.duration
             )
-        elif isinstance(action, NoRerouteAction):
-            return NoRerouteAction(
+        elif isinstance(action, NoAction):
+            return NoAction(
                 driver_id=action.driver_id,
                 affected_disruption_id=action.affected_disruption_id
             )

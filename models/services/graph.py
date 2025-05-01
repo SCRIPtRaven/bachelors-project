@@ -8,11 +8,6 @@ from config.config import PathsConfig
 
 
 def download_and_save_graph(place_name="Kaunas, Lithuania"):
-    """
-    Downloads OSM data for the given place, adds speeds and travel times,
-    and saves the graph as GraphML.
-    """
-
     filename = PathsConfig.get_graph_file_path(place_name)
 
     G = ox.graph_from_place(place_name, network_type='drive', simplify=False)
@@ -23,9 +18,6 @@ def download_and_save_graph(place_name="Kaunas, Lithuania"):
 
 
 def load_graph(filename):
-    """
-    Load the graph from GraphML if it exists. Raises an error if something goes wrong.
-    """
     if not os.path.isfile(filename):
         raise FileNotFoundError(f"Graph data file not found at {filename}")
     G = ox.load_graphml(filename)
@@ -33,20 +25,6 @@ def load_graph(filename):
 
 
 def update_travel_times_from_csv(G, csv_path):
-    """
-    Read adjusted travel times from CSV and update the graph's edges.
-
-    Parameters:
-        G: NetworkX graph to update
-        csv_path: Path to the CSV file containing adjusted travel times
-
-    The CSV file should contain columns:
-    - origin_lat: Latitude of origin point
-    - origin_lon: Longitude of origin point
-    - destination_lat: Latitude of destination point
-    - destination_lon: Longitude of destination point
-    - travel_time_minutes: Travel time in minutes
-    """
     try:
         adjusted_data = pd.read_csv(csv_path)
 
@@ -79,19 +57,6 @@ def update_travel_times_from_csv(G, csv_path):
 
 
 def get_largest_connected_component(G):
-    """
-    Returns the largest strongly connected component of the graph.
-
-    In a road network, a strongly connected component is a subset of nodes where
-    every node can be reached from every other node. This is important for
-    ensuring valid routes can be found between any two points.
-
-    Args:
-        G: NetworkX graph representing the road network
-
-    Returns:
-        NetworkX graph containing only the largest connected component
-    """
     if G.is_directed():
         connected_components = list(nx.strongly_connected_components(G))
     else:

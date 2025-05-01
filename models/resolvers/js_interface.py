@@ -4,10 +4,6 @@ from PyQt5 import QtCore
 
 
 class SimulationJsInterface(QtCore.QObject):
-    """
-    Provides an interface for JavaScript to interact with the Python simulation controller.
-    Handles message passing between the JavaScript simulation and Python backend.
-    """
     disruption_activated = QtCore.pyqtSignal(int)
     disruption_resolved = QtCore.pyqtSignal(int)
     driver_position_updated = QtCore.pyqtSignal(int, float, float)
@@ -24,12 +20,10 @@ class SimulationJsInterface(QtCore.QObject):
         self.simulation_controller = simulation_controller
 
     def set_simulation_controller(self, controller):
-        """Set the simulation controller this interface works with"""
         self.simulation_controller = controller
 
     @QtCore.pyqtSlot(result=bool)
     def isSimulationControllerAvailable(self):
-        """Check if the simulation controller is available and properly initialized"""
         if not self.simulation_controller:
             return False
 
@@ -43,7 +37,6 @@ class SimulationJsInterface(QtCore.QObject):
 
     @QtCore.pyqtSlot(str, result=str)
     def handleEvent(self, message_str):
-        """Handle events from JavaScript"""
         try:
             message = json.loads(message_str)
             event_type = message.get('type')
@@ -140,7 +133,6 @@ class SimulationJsInterface(QtCore.QObject):
             return self._create_response(False, {'error': str(e)})
 
     def _create_response(self, success, data=None):
-        """Create a JSON response string"""
         response = {
             'success': success
         }
@@ -151,7 +143,6 @@ class SimulationJsInterface(QtCore.QObject):
         return json.dumps(response)
 
     def _get_pending_actions(self, driver_id):
-        """Get any pending actions for a driver"""
         if not self.simulation_controller:
             print(f"No simulation controller available for driver {driver_id}")
             return []
@@ -170,7 +161,6 @@ class SimulationJsInterface(QtCore.QObject):
         return []
 
     def _prepare_action_for_js(self, action):
-        """Convert an action dictionary to a JavaScript-compatible format"""
         if isinstance(action, dict):
             result = {}
             for key, value in action.items():
@@ -191,12 +181,6 @@ class SimulationJsInterface(QtCore.QObject):
 
     @QtCore.pyqtSlot(str)
     def updateDriverRoute(self, route_data_str):
-        """
-        Update a driver's route from JavaScript
-
-        Args:
-            route_data_str: JSON string with route data
-        """
         try:
             route_data = json.loads(route_data_str)
             driver_id = route_data.get('driver_id')

@@ -32,7 +32,6 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         self.loadFinished.connect(self._on_load_finished)
 
     def init_map(self, center=None, zoom=None):
-        """Initialize the Leaflet map with center and zoom level"""
         from utils.geo_utils import get_city_coordinates
 
         if center is None or zoom is None:
@@ -67,12 +66,10 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         self.load_map()
 
     def load_map(self):
-        """Load the map HTML file into the view"""
         url = QtCore.QUrl.fromLocalFile(os.path.abspath(PathsConfig.MAP_HTML))
         self.setUrl(url)
 
     def _on_load_finished(self, ok):
-        """Called when the HTML page has finished loading"""
         if ok:
             QtCore.QTimer.singleShot(500, lambda: self.map_ready.emit())
             self.load_completed.emit(True, "Map loaded successfully")
@@ -80,14 +77,12 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
             self.load_completed.emit(False, "Failed to load map")
 
     def execute_js(self, code, callback=None):
-        """Execute JavaScript code in the page"""
         if callback:
             self.page().runJavaScript(code, callback)
         else:
             self.page().runJavaScript(code)
 
     def update_layer(self, layer_name, data):
-        """Update a specific layer with new data"""
         if layer_name not in self.layers:
             return False
 
@@ -97,7 +92,6 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         return True
 
     def load_disruptions(self, disruptions):
-        """Load disruptions onto the map"""
         disruption_data = []
 
         for disruption in disruptions:
@@ -122,7 +116,6 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         self.execute_js(js_code)
 
     def clear_layer(self, layer_name):
-        """Clear a specific layer"""
         if layer_name not in self.layers:
             return False
 
@@ -132,12 +125,10 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         return True
 
     def clear_all_layers(self):
-        """Clear all map layers"""
         for layer_name in self.layers:
             self.clear_layer(layer_name)
 
     def add_warehouse(self, lat, lon):
-        """Add warehouse marker to the map"""
         data = {
             "lat": lat,
             "lng": lon,
@@ -146,7 +137,6 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         self.update_layer("warehouse", [data])
 
     def add_delivery_points(self, points):
-        """Add delivery points to the map"""
         data = []
         for i, point in enumerate(points):
             lat, lon, weight, volume = point
@@ -161,7 +151,6 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         self.update_layer("deliveries", data)
 
     def add_route(self, route_id, driver_id, points, style, popup=None):
-        """Add a route to the map"""
         route_data = {
             "id": route_id,
             "driverId": driver_id,
@@ -181,23 +170,19 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
         self.update_layer("routes", routes)
 
     def start_simulation(self, simulation_data):
-        """Start a simulation of the delivery process"""
         js_code = f"if (typeof startSimulation === 'function') {{ startSimulation({json.dumps(simulation_data)}); }}"
         self.execute_js(js_code)
 
     def set_simulation_speed(self, speed_factor):
-        """Set the simulation speed factor (1.0 = real-time)"""
         js_code = f"if (typeof setSimulationSpeed === 'function') {{ setSimulationSpeed({speed_factor}); }}"
         self.execute_js(js_code)
 
 
 class MapHandler(QtCore.QObject):
-    """Object to handle calls from JavaScript to Python"""
     map_initialized = QtCore.pyqtSignal()
 
     @QtCore.pyqtSlot(str, result=str)
     def handleEvent(self, message):
-        """Handle an event from JavaScript"""
         if message == "map_initialized":
             self.map_initialized.emit()
 

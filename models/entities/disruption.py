@@ -24,7 +24,6 @@ class Disruption(BaseModel):
     is_active: bool = False
 
     def activate(self):
-        """Activate this disruption if not already active"""
         if not self.is_active:
             self.is_active = True
             return True

@@ -22,7 +22,6 @@ class DeliveryViewModel(QtCore.QObject):
             self.messenger.subscribe(MessageType.GRAPH_LOADED, self.handle_graph_loaded)
 
     def set_graph(self, graph):
-        """Set the graph data"""
         self._graph = graph
 
         if self.messenger:
@@ -36,7 +35,6 @@ class DeliveryViewModel(QtCore.QObject):
                                     {'location': warehouse_location})
 
     def generate_points(self, num_points):
-        """Generate delivery points"""
         if self._graph is None:
             self.request_show_message.emit(
                 "Graph Not Loaded",
@@ -73,7 +71,6 @@ class DeliveryViewModel(QtCore.QObject):
             traceback.print_exc()
 
     def _process_delivery_points(self, delivery_points):
-        """Process and snap delivery points to the road network"""
         self.snapped_delivery_points = []
         successful_points = 0
         skipped_points = 0
@@ -104,7 +101,6 @@ class DeliveryViewModel(QtCore.QObject):
         )
 
     def get_warehouse_location(self):
-        """Calculate the center of the graph to place the warehouse"""
         if not self._graph:
             return None
 
@@ -124,12 +120,10 @@ class DeliveryViewModel(QtCore.QObject):
         return warehouse_coords
 
     def handle_graph_loaded(self, data):
-        """Handle graph loaded messages from other ViewModels"""
         if 'graph' in data:
             self.set_graph(data['graph'])
 
     def validate_and_generate_points(self, num_deliveries_text):
-        """Validate input and generate delivery points"""
         if not num_deliveries_text.isdigit():
             return False, "Please enter a valid number of delivery points."
 

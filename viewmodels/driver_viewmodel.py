@@ -35,7 +35,6 @@ class DriverViewModel(QtCore.QObject):
             self.request_show_message.emit("Error", f"Error generating drivers: {e}", "critical")
 
     def update_driver_stats(self, solution_data):
-        """Process and emit driver statistics for UI update"""
         if not solution_data or not self.delivery_drivers:
             return
 
@@ -72,7 +71,6 @@ class DriverViewModel(QtCore.QObject):
         self.driver_stats_updated.emit(formatted_stats)
 
     def on_driver_double_clicked(self, driver_id):
-        """Handle driver selection"""
         self.selected_driver_id = None if self.selected_driver_id == driver_id else driver_id
 
         self.driver_selected.emit(self.selected_driver_id)
@@ -84,12 +82,10 @@ class DriverViewModel(QtCore.QObject):
             })
 
     def handle_route_calculated(self, data):
-        """Handle route calculation messages from other ViewModels"""
         if 'driver_stats' in data:
             self.update_driver_stats(data['driver_stats'])
 
     def validate_and_generate_drivers(self, num_drivers_text):
-        """Validate input and generate drivers"""
         if not num_drivers_text.isdigit():
             return False, "Please enter a valid number of drivers."
 

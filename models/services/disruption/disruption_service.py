@@ -18,15 +18,12 @@ class DisruptionService:
         self.detailed_route_points = []
 
     def set_solution(self, solution):
-        """Update the route solution after optimization"""
         self.solution = solution
 
     def set_detailed_route_points(self, points):
-        """Store the detailed list of (lat, lon) points from all calculated routes."""
         self.detailed_route_points = points
 
     def generate_disruptions(self, num_drivers):
-        """Generate a set of random disruptions for the simulation"""
         self.disruptions = []
 
         num_delivery_points = len(self.snapped_delivery_points) if self.snapped_delivery_points else 0
@@ -71,7 +68,6 @@ class DisruptionService:
         return self.disruptions
 
     def _create_specific_disruption(self, disruption_type):
-        """Create a disruption of a specific type"""
         location = None
         radius = 0
         duration = 0
@@ -177,18 +173,6 @@ class DisruptionService:
         return disruption
 
     def _disruption_covers_critical_point(self, location, radius, buffer_distance=20):
-        """
-        Check if a disruption at the given location with the given radius would cover
-        any critical point (delivery points or warehouse).
-
-        Args:
-            location: (lat, lon) tuple of the disruption
-            radius: Radius of the disruption in meters
-            buffer_distance: Additional buffer distance in meters
-
-        Returns:
-            Boolean indicating if any critical point would be covered
-        """
         effective_radius = radius + buffer_distance
 
         if self.warehouse_location:
@@ -208,18 +192,6 @@ class DisruptionService:
         return False
 
     def _disruption_overlaps_existing(self, location, radius, buffer_distance=50):
-        """
-        Check if a disruption at the given location would overlap with any existing disruptions.
-        Only considers traffic jams and road closures (not recipient unavailable).
-
-        Args:
-            location: (lat, lon) tuple of the new disruption
-            radius: Radius of the new disruption in meters
-            buffer_distance: Additional buffer distance between disruption edges
-
-        Returns:
-            Boolean indicating if the new disruption would overlap with existing ones
-        """
         for existing in self.disruptions:
             if existing.type == DisruptionType.RECIPIENT_UNAVAILABLE:
                 continue
@@ -234,7 +206,6 @@ class DisruptionService:
         return False
 
     def _create_random_disruption(self):
-        """Create a random disruption based on type and location constraints"""
         available_types = [t for t in DisruptionType if t.value in DisruptionConfig.ENABLED_TYPES]
 
         if not available_types:
@@ -244,7 +215,6 @@ class DisruptionService:
         return self._create_specific_disruption(disruption_type)
 
     def get_active_disruptions(self, simulation_time):
-        """Get all disruptions active at the given simulation time"""
         active = []
         for disruption in self.disruptions:
             if disruption.is_active and not disruption.resolved:
@@ -252,7 +222,6 @@ class DisruptionService:
         return active
 
     def resolve_disruption(self, disruption_id):
-        """Mark a disruption as resolved"""
         for disruption in self.disruptions:
             if disruption.id == disruption_id:
                 disruption.resolved = True
@@ -260,7 +229,6 @@ class DisruptionService:
         return False
 
     def is_point_affected(self, point, simulation_time):
-        """Check if a point is affected by any active disruption"""
         cache_key = (point, simulation_time)
         if cache_key in self.location_cache:
             return self.location_cache[cache_key]
@@ -276,7 +244,6 @@ class DisruptionService:
         return None
 
     def get_path_disruptions(self, path, simulation_time):
-        """Find disruptions affecting a path"""
         disruptions = []
         for point in path:
             disruption = self.is_point_affected(point, simulation_time)
@@ -285,7 +252,6 @@ class DisruptionService:
         return disruptions
 
     def calculate_delay_factor(self, point, simulation_time):
-        """Calculate delay factor for a point at the given time"""
         disruption = self.is_point_affected(point, simulation_time)
         if not disruption:
             return 1.0
@@ -296,9 +262,6 @@ class DisruptionService:
             return max(0.5, 1.0 - disruption.severity)
 
     def check_drivers_near_disruptions(self, driver_positions, driver_routes=None):
-        """
-        Check if any drivers are close to inactive disruptions and activate them.
-        """
         newly_activated = []
 
         eligible_disruptions = [
@@ -331,9 +294,6 @@ class DisruptionService:
         return newly_activated
 
     def _driver_route_affected(self, driver_id, disruption, driver_routes=None):
-        """
-        Check if a driver's route passes through a disruption area.
-        """
         if not driver_routes or driver_id not in driver_routes:
             return True
 
@@ -353,7 +313,6 @@ class DisruptionService:
         return False
 
     def _segment_near_disruption(self, start, end, disruption):
-        """Check if a route segment passes near a disruption"""
         if (calculate_haversine_distance(start, disruption.location) <= disruption.affected_area_radius or
                 calculate_haversine_distance(end, disruption.location) <= disruption.affected_area_radius):
             return True
@@ -364,7 +323,6 @@ class DisruptionService:
         return closest_distance <= disruption.affected_area_radius
 
     def _point_to_segment_distance(self, point, segment_start, segment_end):
-        """Calculate the shortest distance from a point to a line segment"""
         p_lat, p_lon = point
         s_lat, s_lon = segment_start
         e_lat, e_lon = segment_end

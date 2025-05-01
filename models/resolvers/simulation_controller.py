@@ -1,5 +1,4 @@
 import json
-import math
 import threading
 from typing import List, Dict, Tuple, Any
 
@@ -15,10 +14,6 @@ from utils.geo_utils import calculate_haversine_distance
 
 
 class SimulationController(QtCore.QObject):
-    """
-    Controller that interfaces between the disruption resolver and the simulation.
-    Handles state management, action execution, and communication with the UI.
-    """
     route_update_available = QtCore.pyqtSignal()
     deliveries_reassigned = QtCore.pyqtSignal(int, int, list)
     delivery_skipped = QtCore.pyqtSignal(int, int)
@@ -60,11 +55,9 @@ class SimulationController(QtCore.QObject):
         self.disruption_end_handlers = {}
 
     def set_resolver(self, resolver: DisruptionResolver):
-        """Set the disruption resolver to use"""
         self.resolver = resolver
 
     def handle_recipient_unavailable(self, driver_id, delivery_idx, disruption_id, duration):
-        """Handle a recipient unavailable disruption"""
         end_time = self.simulation_time + duration
 
         if driver_id not in self.pending_deliveries:
@@ -103,14 +96,12 @@ class SimulationController(QtCore.QObject):
         return True
 
     def _format_time(self, seconds):
-        """Format seconds as HH:MM:SS"""
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
     def _handle_recipient_available(self, driver_id, delivery_idx, disruption_id):
-        """Handle a recipient becoming available again"""
         print(f"Handling recipient available: driver={driver_id}, delivery={delivery_idx}, disruption={disruption_id}")
 
         pending = None
@@ -202,7 +193,6 @@ class SimulationController(QtCore.QObject):
         return True
 
     def update_simulation_time(self, new_time):
-        """Update simulation time and check for ended disruptions"""
         old_time = self.simulation_time
         self.simulation_time = new_time
 
@@ -223,7 +213,6 @@ class SimulationController(QtCore.QObject):
                         print(f"No handler found for disruption {disruption_id}")
 
     def initialize_simulation(self):
-        """Initialize the simulation state before starting"""
         for driver in self.drivers:
             self.driver_positions[driver.id] = self.warehouse_location
 
@@ -256,7 +245,6 @@ class SimulationController(QtCore.QObject):
         self.recalculation_count = 0
 
     def _calculate_initial_routes(self):
-        """Calculate the initial detailed routes for all drivers"""
         self.driver_routes = {}
 
         for driver in self.drivers:
@@ -295,7 +283,6 @@ class SimulationController(QtCore.QObject):
         self.current_estimated_time = self.original_estimated_time
 
     def _calculate_route_details(self, assignment) -> Dict[str, Any]:
-        """Calculate detailed route information for an assignment"""
         delivery_indices = []
 
         route_points = [self.warehouse_location]
@@ -363,7 +350,6 @@ class SimulationController(QtCore.QObject):
         }
 
     def _get_path_between(self, start, end) -> Dict[str, Any]:
-        """Get or calculate the path between two points"""
         cache_key = (start, end)
 
         if cache_key in self._route_cache:
@@ -435,7 +421,6 @@ class SimulationController(QtCore.QObject):
             return result
 
     def _calculate_total_time(self):
-        """Calculate the estimated total time for all routes"""
         max_time = 0
 
         for driver_id, route in self.driver_routes.items():
@@ -446,7 +431,6 @@ class SimulationController(QtCore.QObject):
         return max_time
 
     def get_current_state(self):
-        """Get the current state of the delivery system"""
         try:
             active_disruptions = self.disruption_service.get_active_disruptions(self.simulation_time)
 
@@ -482,9 +466,6 @@ class SimulationController(QtCore.QObject):
     def update_driver_route(self, driver_id: int, new_route: List[Tuple[float, float]],
                             rerouted_segment_start: int = None, rerouted_segment_end: int = None,
                             next_delivery_index: int = None) -> bool:
-        """
-        Update a driver's route with metadata about the rerouted segment.
-        """
         try:
             with self._driver_routes_lock:
                 assignment = None
@@ -583,9 +564,6 @@ class SimulationController(QtCore.QObject):
             return False
 
     def update_driver_position(self, driver_id, position):
-        """
-        Update a driver's position and check for nearby disruptions
-        """
         self.driver_positions[driver_id] = position
 
         if self.disruption_service:
@@ -598,7 +576,6 @@ class SimulationController(QtCore.QObject):
                 self.disruption_activated.emit({'disruption_id': disruption.id})
 
     def process_disruption_activation(self, disruption):
-        """Process disruption activation and schedule resolution"""
         try:
             print(f"Processing disruption activation: {disruption}")
             if not hasattr(disruption, 'metadata'):
@@ -671,7 +648,6 @@ class SimulationController(QtCore.QObject):
             return []
 
     def get_pending_actions_for_driver(self, driver_id):
-        """Get and clear pending actions for a driver"""
         actions = self.pending_actions.get(driver_id, [])
 
         if actions:
@@ -696,15 +672,6 @@ class SimulationController(QtCore.QObject):
         return result
 
     def execute_actions(self, actions: List[DisruptionAction]) -> int:
-        """
-        Execute a list of actions and return the number of successful actions
-
-        Args:
-            actions: List of actions to execute
-
-        Returns:
-            Number of successfully executed actions
-        """
         successful = 0
         for action in actions:
             if action.execute(self):

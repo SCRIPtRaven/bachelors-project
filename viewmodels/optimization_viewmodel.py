@@ -74,7 +74,6 @@ class OptimizationViewModel(QtCore.QObject):
             self.disruption_viewmodel.action_log_updated.connect(self.handle_action_log)
 
     def handle_action_log(self, message, entry_type=None):
-        """Handle action log messages from the disruption viewmodel"""
         entry_type = "action"
         if "reroute" in message.lower():
             entry_type = "reroute"
@@ -101,7 +100,6 @@ class OptimizationViewModel(QtCore.QObject):
             )
 
     def prepare_optimization(self, delivery_drivers, snapped_delivery_points, graph):
-        """Prepare data for optimization"""
         self.delivery_drivers = delivery_drivers
         self.snapped_delivery_points = snapped_delivery_points
         self.G = graph
@@ -117,7 +115,6 @@ class OptimizationViewModel(QtCore.QObject):
         self.request_add_delivery_points.emit(self.snapped_delivery_points)
 
     def run_optimization(self):
-        """Run the optimization process in a worker thread"""
         try:
             self.request_show_loading.emit()
 
@@ -147,7 +144,6 @@ class OptimizationViewModel(QtCore.QObject):
             self.request_show_message.emit("Error", f"Optimization error: {e}", "critical")
 
     def rate_limited_visualization_update(self, solution, unassigned):
-        """Handle visualization updates with rate limiting to prevent UI freezing"""
         current_time = time.time()
 
         if not hasattr(self, 'update_interval'):
@@ -159,7 +155,6 @@ class OptimizationViewModel(QtCore.QObject):
             self.request_update_visualization.emit(solution, unassigned)
 
     def update_visualization(self, solution, unassigned_deliveries=None):
-        """Update the visualization with the given solution using background processing"""
         try:
             if isinstance(solution, tuple):
                 solution, unassigned = solution
@@ -188,7 +183,6 @@ class OptimizationViewModel(QtCore.QObject):
             traceback.print_exc()
 
     def _solutions_equal(self, sol1, sol2):
-        """Compare two solutions to see if they're functionally equivalent"""
         if len(sol1) != len(sol2):
             return False
 
@@ -205,7 +199,6 @@ class OptimizationViewModel(QtCore.QObject):
         return True
 
     def _process_visualization_in_background(self, solution, unassigned_deliveries):
-        """Process route calculations in a background thread"""
         try:
             if unassigned_deliveries is None:
                 unassigned_set = set()
@@ -315,10 +308,6 @@ class OptimizationViewModel(QtCore.QObject):
             traceback.print_exc()
 
     def _calculate_route_points(self, assignment, warehouse_location, unassigned_set):
-        """
-        Calculate route points at the edge level of the road network graph.
-        Each segment in the result represents a single road edge with proper travel time.
-        """
         if not warehouse_location:
             return [], [], []
 
@@ -444,7 +433,6 @@ class OptimizationViewModel(QtCore.QObject):
         return route_points, travel_times, delivery_indices
 
     def run_simulation(self):
-        """Run a simulation of the delivery routes using actual travel times"""
         if not self.current_solution:
             self.request_show_message.emit(
                 "Simulation Error",
@@ -508,7 +496,6 @@ class OptimizationViewModel(QtCore.QObject):
                     "style": route_style
                 })
 
-            # Tell disruption viewmodel about simulation starting
             if self.messenger:
                 self.messenger.send(MessageType.SIMULATION_STARTED, {
                     'total_expected_time': total_expected_time,
@@ -548,12 +535,10 @@ class OptimizationViewModel(QtCore.QObject):
             )
 
     def handle_disruption_visualization(self, data):
-        """Handle disruption visualization data"""
         if 'disruptions' in data and hasattr(self, 'request_load_disruptions'):
             self.request_load_disruptions.emit(data['disruptions'])
 
     def handle_driver_selected(self, data):
-        """Handle driver selection from DriverViewModel"""
         driver_id = data.get('driver_id')
 
         if self.current_solution:
@@ -565,30 +550,25 @@ class OptimizationViewModel(QtCore.QObject):
             )
 
     def handle_warehouse_location(self, data):
-        """Handle warehouse location updates"""
         location = data.get('location')
         if location:
             self.set_warehouse_location(location)
 
     def handle_graph_loaded(self, data):
-        """Handle graph loading events"""
         graph = data.get('graph')
         if graph:
             self.set_graph(graph)
 
     def handle_delivery_points_updated(self, data):
-        """Handle delivery points updates"""
         points = data.get('points')
         if points:
             self.set_delivery_points(points)
 
     def handle_drivers_updated(self, data):
-        """Handle driver updates"""
         if isinstance(data, list):
             self.set_delivery_drivers(data)
 
     def on_optimization_finished(self, final_solution, unassigned):
-        """Handle optimization completion"""
         try:
             self.request_hide_loading.emit()
             self.request_enable_ui.emit(True)
@@ -641,12 +621,6 @@ class OptimizationViewModel(QtCore.QObject):
             )
 
     def _calculate_driver_statistics(self, solution):
-        """
-        Calculate detailed statistics for each driver based on the solution.
-
-        Returns:
-            dict: Dictionary mapping driver_id to their statistics
-        """
         driver_stats = {}
 
         for assignment in solution:
@@ -730,7 +704,6 @@ class OptimizationViewModel(QtCore.QObject):
         return driver_stats
 
     def _update_statistics(self, final_solution):
-        """Update the statistics labels with solution metrics"""
         if not hasattr(self, 'optimizer') or not self.optimizer:
             return 0, 0
 
@@ -764,7 +737,6 @@ class OptimizationViewModel(QtCore.QObject):
         return total_distance, total_time
 
     def _show_optimization_summary(self, final_solution, unassigned):
-        """Show a summary of the optimization results"""
         total_distance, total_time = self._update_statistics(final_solution)
 
         assigned_count = sum(len(assignment.delivery_indices)
@@ -784,7 +756,6 @@ class OptimizationViewModel(QtCore.QObject):
         self.request_show_message.emit("Optimization Results", summary, "information")
 
     def validate_optimization_prerequisites(self):
-        """Validate all prerequisites are in place for optimization"""
         if (self.G is None or
                 not self.snapped_delivery_points or
                 not self.delivery_drivers):
@@ -792,19 +763,15 @@ class OptimizationViewModel(QtCore.QObject):
         return True, ""
 
     def set_graph(self, graph):
-        """Set the graph to be used for optimization"""
         self.G = graph
 
     def set_warehouse_location(self, location):
-        """Set the warehouse location"""
         self.warehouse_location = location
 
     def set_delivery_drivers(self, drivers):
-        """Set the delivery drivers"""
         self.delivery_drivers = drivers
 
     def set_delivery_points(self, points):
-        """Set the delivery points"""
         self.snapped_delivery_points = points
 
     @property

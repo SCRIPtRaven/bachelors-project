@@ -35,7 +35,6 @@ class MainWindow(QWidget):
         self.connect_signals()
 
     def init_widgets(self):
-        """Initialize all widgets but keep them hidden initially"""
         self.map_widget = MapWidget(self)
         self.map_widget.hide()
 
@@ -99,7 +98,6 @@ class MainWindow(QWidget):
         """)
 
     def init_layout(self):
-        """Set up the initial layout with just the load button"""
         self.main_layout = QVBoxLayout(self)
 
         bottom_frame = QFrame()
@@ -111,7 +109,6 @@ class MainWindow(QWidget):
         self.main_layout.addWidget(bottom_frame)
 
     def connect_signals(self):
-        """Connect all signal handlers"""
         self.btn_generate_deliveries.clicked.connect(self.generate_deliveries)
         self.btn_tsp.clicked.connect(self.map_widget.find_shortest_route)
         self.btn_load.clicked.connect(self.handle_load_data)
@@ -120,16 +117,11 @@ class MainWindow(QWidget):
         self.btn_simulate.clicked.connect(self.map_widget.run_simulation)
 
     def handle_load_data(self):
-        """Open city selector dialog and handle the city selection"""
         selector = CitySelector(self)
         selector.city_selected.connect(self.map_widget.load_graph_data)
         selector.exec_()
 
     def show_full_ui(self, success):
-        """
-        Creates the main application interface after successful data loading.
-        The interface consists of a map panel on the left and a control/stats panel on the right.
-        """
         if not success:
             return
 
@@ -259,13 +251,11 @@ class MainWindow(QWidget):
         self.btn_generate_drivers.show()
 
     def generate_deliveries(self):
-        """Generate the requested number of delivery points"""
         success, message = self.map_widget.delivery_viewmodel.validate_and_generate_points(self.delivery_input.text())
         if not success:
             QMessageBox.warning(self, "Invalid Input", message)
 
     def generate_drivers(self):
-        """Generate the requested number of delivery drivers"""
         success, message = self.map_widget.driver_viewmodel.validate_and_generate_drivers(self.driver_input.text())
         if not success:
             QMessageBox.warning(self, "Invalid Input", message)
