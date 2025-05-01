@@ -6,7 +6,7 @@ class ActionType(Enum):
     """Types of actions the disruption resolver can take"""
     RECIPIENT_UNAVAILABLE = auto()
     REROUTE_BASIC = auto()
-    NO_REROUTE = auto()
+    NO_ACTION = auto()
     REROUTE_TIGHT_AVOIDANCE = auto()
     REROUTE_WIDE_AVOIDANCE = auto()
 
@@ -35,8 +35,8 @@ class DisruptionAction:
             return RerouteBasicAction.from_dict(data)
         elif action_type == ActionType.RECIPIENT_UNAVAILABLE:
             return RecipientUnavailableAction.from_dict(data)
-        elif action_type == ActionType.NO_REROUTE:
-            return NoRerouteAction.from_dict(data)
+        elif action_type == ActionType.NO_ACTION:
+            return NoAction.from_dict(data)
         elif action_type == ActionType.REROUTE_TIGHT_AVOIDANCE:
             return RerouteTightAvoidanceAction.from_dict(data)
         elif action_type == ActionType.REROUTE_WIDE_AVOIDANCE:
@@ -109,17 +109,17 @@ class RerouteBasicAction(DisruptionAction):
         )
 
 
-class NoRerouteAction(DisruptionAction):
+class NoAction(DisruptionAction):
     """Action that deliberately maintains current route despite a disruption"""
     
     def __init__(self, driver_id: int, affected_disruption_id: Optional[int] = None):
-        super().__init__(ActionType.NO_REROUTE)
+        super().__init__(ActionType.NO_ACTION)
         self.driver_id = driver_id
         self.affected_disruption_id = affected_disruption_id
         
     def execute(self, controller):
         """Log that a deliberate decision to not reroute was made"""
-        print(f"NO REROUTE ACTION EXECUTE: driver_id={self.driver_id}")
+        print(f"NO ACTION EXECUTE: driver_id={self.driver_id}")
         
         if hasattr(controller, 'action_log'):
             controller.action_log.emit(
@@ -143,7 +143,7 @@ class NoRerouteAction(DisruptionAction):
     
     @staticmethod
     def from_dict(data):
-        return NoRerouteAction(
+        return NoAction(
             driver_id=data['driver_id'],
             affected_disruption_id=data.get('affected_disruption_id')
         )

@@ -1,5 +1,12 @@
 import queue
 import os
+import pickle
+from pathlib import Path
+import json
+import numpy as np
+from typing import List, Dict, Optional, Set, Any, Union, Tuple, Type
+from datetime import datetime
+import time
 
 from PyQt5 import QtCore
 
@@ -9,6 +16,7 @@ from models.resolvers.simulation_controller import SimulationController
 from models.services.disruption.disruption_service import DisruptionService
 from viewmodels.viewmodel_messenger import MessageType
 from workers.disruption_resolution_worker import DisruptionResolutionWorker
+from models.entities.disruption import Disruption, DisruptionType
 
 
 class DisruptionViewModel(QtCore.QObject):
@@ -34,6 +42,7 @@ class DisruptionViewModel(QtCore.QObject):
         self.resolver = None
         self.drivers = None
         self.current_solution = None
+        self.last_generated_solution = None
 
         self.resolver_thread = QtCore.QThread()
         self.resolver_worker = None
@@ -48,6 +57,12 @@ class DisruptionViewModel(QtCore.QObject):
         self._route_update_queue = queue.Queue()
         self._route_data_cache = {}
         self._route_cache_lock = QtCore.QMutex()
+
+        # ML model type selection (defaults to random_forest)
+        self.ml_model_type = 'random_forest'
+
+        # Try to load model configuration
+        self._load_model_configuration()
 
         if self.messenger:
             self.messenger.subscribe(MessageType.GRAPH_LOADED, self.handle_graph_loaded)
@@ -211,25 +226,35 @@ class DisruptionViewModel(QtCore.QObject):
         with QtCore.QMutexLocker(self._route_cache_lock):
             return self._route_data_cache.pop(driver_id, None)
 
-    def initialize_resolver(self):
-        """Initialize the disruption resolver"""
+    def initialize_resolver(self, ml_model_type=None):
+        """
+        Initialize the disruption resolver
+        
+        Args:
+            ml_model_type (str, optional): Type of ML model to use ('random_forest' or 'neural_network')
+                                        If None, uses the instance's ml_model_type attribute
+        """
+        if ml_model_type is not None:
+            self.ml_model_type = ml_model_type
+            
         if self.resolver is None:
             if self.G and self.warehouse_location:
                 # Try to load ML classifier resolver first
                 try:
-                    print("Initializing ML Classifier Resolver...")
+                    print(f"Initializing ML Classifier Resolver with model type: {self.ml_model_type}...")
                     ml_resolver = MLClassifierResolver(
                         graph=self.G,
-                        warehouse_location=self.warehouse_location
+                        warehouse_location=self.warehouse_location,
+                        model_type=self.ml_model_type
                     )
                     
                     # Check if classifier model was loaded successfully
                     if ml_resolver.has_classifier():
                         self.resolver = ml_resolver
-                        print("ML Classifier model loaded successfully.")
+                        print(f"ML Classifier model ({self.ml_model_type}) loaded successfully.")
                     else:
                         # Fall back to rule-based resolver if no model is available
-                        print("ML Classifier model not found, falling back to Rule-Based Resolver...")
+                        print(f"ML Classifier model ({self.ml_model_type}) not found, falling back to Rule-Based Resolver...")
                         self.resolver = RuleBasedResolver(
                             graph=self.G,
                             warehouse_location=self.warehouse_location
@@ -252,6 +277,50 @@ class DisruptionViewModel(QtCore.QObject):
             else:
                 print("Cannot initialize resolver: Missing graph or warehouse location.")
                 return False
+        return True
+
+    def set_ml_model_type(self, model_type):
+        """
+        Set the ML model type to use and re-initialize the resolver if needed
+        
+        Args:
+            model_type (str): 'random_forest' or 'neural_network'
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if model_type not in ['random_forest', 'neural_network']:
+            print(f"Warning: Invalid model type '{model_type}'. Must be 'random_forest' or 'neural_network'.")
+            return False
+            
+        # Update model type
+        self.ml_model_type = model_type
+        
+        # Reinitialize resolver if it already exists
+        if self.resolver is not None:
+            print(f"Reinitializing resolver with model type: {model_type}")
+            # Store the previous resolver type for fallback
+            prev_resolver_type = type(self.resolver).__name__
+            
+            # Clear the current resolver
+            self.resolver = None
+            
+            # Attempt to initialize with the new model type
+            success = self.initialize_resolver(model_type)
+            
+            # Check if we successfully created an ML resolver
+            if success and isinstance(self.resolver, MLClassifierResolver):
+                print(f"Successfully switched to {model_type} model.")
+                
+                # Update the simulation controller if it exists
+                if self.simulation_controller:
+                    self.simulation_controller.set_resolver(self.resolver)
+                    
+                return True
+            else:
+                print(f"Failed to initialize {model_type} model. Current resolver: {type(self.resolver).__name__}")
+                return False
+                
         return True
 
     def generate_disruptions(self, num_drivers):
@@ -586,3 +655,23 @@ class DisruptionViewModel(QtCore.QObject):
         """Handle disruption resolution event"""
         disruption_id = data.get('disruption_id')
         self.resolve_disruption(disruption_id)
+
+    def _load_model_configuration(self):
+        """Load the model type configuration if it exists"""
+        config_file = Path('config') / 'ml_model_config.pkl'
+        
+        if config_file.exists():
+            try:
+                with open(config_file, 'rb') as f:
+                    config = pickle.load(f)
+                
+                if 'model_type' in config:
+                    model_type = config['model_type']
+                    if model_type in ['random_forest', 'neural_network']:
+                        self.ml_model_type = model_type
+                        print(f"Loaded model configuration: using {self.ml_model_type} model")
+                    else:
+                        print(f"Invalid model type in configuration: {model_type}")
+            except Exception as e:
+                print(f"Error loading model configuration: {e}")
+                # Continue with default

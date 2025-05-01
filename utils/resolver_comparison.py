@@ -2,18 +2,22 @@ import os
 import pickle
 import argparse
 import time
+import sys
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Any
 from datetime import datetime
 from sklearn.inspection import permutation_importance
 
+# Add the project root directory to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from models.entities.disruption import Disruption, DisruptionType
 from models.resolvers.rule_based_resolver import RuleBasedResolver
 from models.resolvers.ml_classifier_resolver import MLClassifierResolver
 from models.resolvers.actions import (
     DisruptionAction, RerouteBasicAction, RecipientUnavailableAction,
-    NoRerouteAction, RerouteTightAvoidanceAction, RerouteWideAvoidanceAction
+    NoAction, RerouteTightAvoidanceAction, RerouteWideAvoidanceAction
 )
 from models.resolvers.state import DeliverySystemState
 from utils.geo_utils import calculate_haversine_distance
@@ -24,6 +28,27 @@ from workers.graph_loader import GraphLoadWorker
 from models.services import graph
 
 
+def get_current_model_type() -> str:
+    """
+    Get the current model type from config file
+    
+    Returns:
+        Model type ('random_forest' or 'neural_network'), defaults to 'random_forest'
+    """
+    config_file = os.path.join('config', 'ml_model_config.pkl')
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, 'rb') as f:
+                config = pickle.load(f)
+                if 'model_type' in config:
+                    return config['model_type']
+        except Exception as e:
+            print(f"Error reading model configuration: {e}")
+    
+    # Default to random forest if no config found
+    return 'random_forest'
+
+
 class ResolverComparison:
     """
     Compares the performance of the ML-based resolver against the rule-based resolver
@@ -32,22 +57,23 @@ class ResolverComparison:
     
     RESULTS_DIR = os.path.join('models', 'resolvers', 'comparison_results')
     
-    def __init__(self, graph, warehouse_location, delivery_points, num_scenarios=100, random_seed=42):
+    def __init__(self, graph, warehouse_location, delivery_points, num_scenarios=100, random_seed=42, model_type=None):
         self.G = graph
         self.warehouse_location = warehouse_location
         self.delivery_points = delivery_points
         self.num_scenarios = num_scenarios
         self.random_seed = random_seed
         
+        # Get model type from config if not provided
+        self.model_type = model_type or get_current_model_type()
+        print(f"Using model type: {self.model_type}")
+        
         # Create output directory
         os.makedirs(self.RESULTS_DIR, exist_ok=True)
         
         # Create resolvers
         self.rule_based_resolver = RuleBasedResolver(graph, warehouse_location)
-        self.ml_resolver = MLClassifierResolver(graph, warehouse_location)
-        
-        # Check if ML resolver has a classifier
-        self.ml_available = self.ml_resolver.has_classifier()
+        self.ml_resolver = MLClassifierResolver(graph, warehouse_location, model_type=self.model_type)
         
         # Create data generator for scenarios
         self.data_generator = MLDataGenerator(
@@ -68,8 +94,7 @@ class ResolverComparison:
         Returns:
             Path to the saved results file
         """
-        if not self.ml_available:
-            print("WARNING: ML Classifier model not available. Will use rule-based resolver for both cases.")
+        # No need to check ml_available as the resolver will exit with an error if loading fails
         
         print(f"Generating {self.num_scenarios} comparison scenarios...")
         
@@ -193,12 +218,12 @@ class ResolverComparison:
                 
                 # For length improvement, handle edge cases and outliers
                 if rule_based_metrics["route_length"] > 0:
-                    # If rule-based is no_reroute but ML creates a route, or vice versa, handle specially
-                    if rule_based_type == "none" and ml_type != "none":
+                    # If rule-based is no_action but ML creates a route, or vice versa, handle specially
+                    if rule_based_type == "no_action" and ml_type != "no_action":
                         # ML added a route when rule-based did nothing - this is a negative improvement
                         # Cap at -100% (can't be worse than doubling the original)
                         length_improvement = -100.0
-                    elif rule_based_type != "none" and ml_type == "none":
+                    elif rule_based_type != "no_action" and ml_type == "no_action":
                         # ML did nothing when rule-based added a route - this is a positive improvement
                         length_improvement = 100.0
                     else:
@@ -269,9 +294,9 @@ class ResolverComparison:
     def _get_action_type(self, action: DisruptionAction) -> str:
         """Get the string representation of an action type"""
         if action is None:
-            return "none"
-        elif isinstance(action, NoRerouteAction):
-            return "no_reroute"
+            return "no_action"
+        elif isinstance(action, NoAction):
+            return "no_action"
         elif isinstance(action, RerouteTightAvoidanceAction):
             return "tight_avoidance"
         elif isinstance(action, RerouteWideAvoidanceAction):
@@ -295,8 +320,8 @@ class ResolverComparison:
             if action is None:
                 return None
             
-            if isinstance(action, NoRerouteAction):
-                # For no_reroute, use original route but apply disruption penalty
+            if isinstance(action, NoAction):
+                # For no_action, use original route but apply disruption penalty
                 new_route = original_route
                 
                 # Apply penalty based on disruption type and severity
@@ -424,7 +449,6 @@ class ResolverComparison:
             "avg_time_diff_seconds": avg_time_diff,
             "rule_based_avg_time_ms": rule_based_avg_time,
             "ml_avg_time_ms": ml_avg_time,
-            "ml_available": self.ml_available,
             "confidence_stats": confidence_stats,
             "feature_importance": feature_importance
         }
@@ -436,7 +460,7 @@ class ResolverComparison:
         # Calculate paired metrics by action type
         action_metrics = {}
         for action in set(df['ml_action'].unique()):
-            if action != "none":
+            if action != "no_action":
                 action_subset = df[df['ml_action'] == action]
                 if len(action_subset) > 0:
                     action_metrics[action] = {
@@ -507,7 +531,6 @@ class ResolverComparison:
             f.write("===========================\n\n")
             f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Total scenarios: {total_scenarios}\n")
-            f.write(f"ML resolver available: {self.ml_available}\n\n")
             
             f.write("Performance Metrics:\n")
             f.write(f"Matching actions: {matching_actions} ({matching_pct:.2f}%)\n\n")
@@ -564,6 +587,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Compare ML and rule-based resolvers')
     parser.add_argument('--scenarios', type=int, default=100, help='Number of scenarios to compare')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    parser.add_argument('--model', type=str, default=None, 
+                      choices=['random_forest', 'neural_network'], 
+                      help='ML model type to use (default: read from config)')
     args = parser.parse_args()
     
     # Load configuration
@@ -590,7 +616,8 @@ if __name__ == "__main__":
         warehouse_location=warehouse_location,
         delivery_points=delivery_points,
         num_scenarios=args.scenarios,
-        random_seed=args.seed
+        random_seed=args.seed,
+        model_type=args.model
     )
     
     # Run comparison

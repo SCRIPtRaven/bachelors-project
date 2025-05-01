@@ -7,7 +7,7 @@ import osmnx as ox
 from models.entities.disruption import Disruption, DisruptionType
 from models.resolvers.actions import (
     DisruptionAction, RerouteBasicAction, RecipientUnavailableAction,
-    NoRerouteAction, RerouteTightAvoidanceAction, RerouteWideAvoidanceAction
+    NoAction, RerouteTightAvoidanceAction, RerouteWideAvoidanceAction
 )
 from models.resolvers.resolver import DisruptionResolver
 from models.resolvers.state import DeliverySystemState
@@ -180,20 +180,20 @@ class RuleBasedResolver(DisruptionResolver):
 
         return None
 
-    def _create_no_reroute_action(self, driver_id: int, disruption: Disruption) -> Optional[NoRerouteAction]:
+    def _create_no_action(self, driver_id: int, disruption: Disruption) -> Optional[NoAction]:
         """
         Create an action that explicitly chooses not to reroute a driver
         """
         try:
-            #print(f"Creating no-reroute action for driver {driver_id} and disruption {disruption.id}")
+            #print(f"Creating no-action for driver {driver_id} and disruption {disruption.id}")
             
-            return NoRerouteAction(
+            return NoAction(
                 driver_id=driver_id,
                 affected_disruption_id=disruption.id
             )
             
         except Exception as e:
-            print(f"Error creating no-reroute action: {e}")
+            print(f"Error creating no-action: {e}")
             import traceback
             traceback.print_exc()
             return None

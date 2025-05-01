@@ -17,7 +17,7 @@ from models.entities.disruption import Disruption, DisruptionType
 from models.resolvers.rule_based_resolver import RuleBasedResolver
 from models.resolvers.actions import (
     DisruptionAction, RerouteBasicAction, RecipientUnavailableAction,
-    NoRerouteAction, RerouteTightAvoidanceAction, RerouteWideAvoidanceAction, ActionType
+    NoAction, RerouteTightAvoidanceAction, RerouteWideAvoidanceAction, ActionType
 )
 from models.resolvers.state import DeliverySystemState
 from utils.geo_utils import calculate_haversine_distance
@@ -647,7 +647,7 @@ class MLDataGenerator:
             
             # 1. No action
             try:
-                no_action = self.resolver._create_no_reroute_action(driver_id, disruption)
+                no_action = self.resolver._create_no_action(driver_id, disruption)
                 if no_action:
                     metrics = self._evaluate_action_metrics(
                         no_action, route_points, original_length, original_time, disruption
