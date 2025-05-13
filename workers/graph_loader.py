@@ -23,6 +23,12 @@ class GraphLoadWorker(QtCore.QThread):
                 G = graph.load_graph(filename=graph_path)
                 G = get_largest_connected_component(G)
 
+                # Ensure G.graph['name'] is set
+                if not hasattr(G, 'graph') or not isinstance(G.graph, dict):
+                    G.graph = {}
+                if 'name' not in G.graph or G.graph['name'] != self.city_name:
+                    G.graph['name'] = self.city_name
+
                 if os.path.isfile(travel_times_path):
                     graph.update_travel_times_from_csv(G, travel_times_path)
 
@@ -33,6 +39,11 @@ class GraphLoadWorker(QtCore.QThread):
                 if success:
                     G = graph.load_graph(filename=graph_path)
                     G = get_largest_connected_component(G)
+                    # Ensure G.graph['name'] is set
+                    if not hasattr(G, 'graph') or not isinstance(G.graph, dict):
+                        G.graph = {}
+                    if 'name' not in G.graph or G.graph['name'] != self.city_name:
+                        G.graph['name'] = self.city_name
                     self.finished.emit(True, "Graph downloaded and loaded successfully", G, self.city_name)
                 else:
                     self.finished.emit(False, "Failed to download graph", None, self.city_name)

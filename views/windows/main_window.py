@@ -77,6 +77,16 @@ class MainWindow(QWidget):
         self.btn_generate_drivers = QPushButton("Generate Drivers")
         self.btn_generate_drivers.hide()
 
+        self.btn_save_deliveries = QPushButton("Save Deliveries")
+        self.btn_save_deliveries.hide()
+        self.btn_load_deliveries = QPushButton("Load Deliveries")
+        self.btn_load_deliveries.hide()
+
+        self.btn_save_drivers = QPushButton("Save Drivers")
+        self.btn_save_drivers.hide()
+        self.btn_load_drivers = QPushButton("Load Drivers")
+        self.btn_load_drivers.hide()
+
         self.btn_simulate = QPushButton("Simulate Deliveries")
         self.btn_simulate.setEnabled(False)
         self.btn_simulate.hide()
@@ -115,6 +125,11 @@ class MainWindow(QWidget):
         self.map_widget.load_completed.connect(self.show_full_ui)
         self.btn_generate_drivers.clicked.connect(self.generate_drivers)
         self.btn_simulate.clicked.connect(self.map_widget.run_simulation)
+
+        self.btn_save_deliveries.clicked.connect(self.save_deliveries)
+        self.btn_load_deliveries.clicked.connect(self.load_deliveries)
+        self.btn_save_drivers.clicked.connect(self.save_drivers)
+        self.btn_load_drivers.clicked.connect(self.load_drivers)
 
     def handle_load_data(self):
         selector = CitySelector(self)
@@ -180,18 +195,28 @@ class MainWindow(QWidget):
         bottom_layout = QVBoxLayout(bottom_section)
         bottom_layout.setContentsMargins(0, 0, 0, 0)
 
-        delivery_controls = QHBoxLayout()
+        delivery_gen_controls = QHBoxLayout()
         self.delivery_input.setPlaceholderText("Enter number of delivery points")
-        delivery_controls.addWidget(self.delivery_input, 3)
-        delivery_controls.addWidget(self.btn_generate_deliveries, 1)
+        delivery_gen_controls.addWidget(self.delivery_input, 3)
+        delivery_gen_controls.addWidget(self.btn_generate_deliveries, 1)
 
-        driver_controls = QHBoxLayout()
+        delivery_saveload_controls = QHBoxLayout()
+        delivery_saveload_controls.addWidget(self.btn_save_deliveries, 1)
+        delivery_saveload_controls.addWidget(self.btn_load_deliveries, 1)
+
+        driver_gen_controls = QHBoxLayout()
         self.driver_input.setPlaceholderText("Enter number of drivers")
-        driver_controls.addWidget(self.driver_input, 3)
-        driver_controls.addWidget(self.btn_generate_drivers, 1)
+        driver_gen_controls.addWidget(self.driver_input, 3)
+        driver_gen_controls.addWidget(self.btn_generate_drivers, 1)
 
-        bottom_layout.addLayout(delivery_controls)
-        bottom_layout.addLayout(driver_controls)
+        driver_saveload_controls = QHBoxLayout()
+        driver_saveload_controls.addWidget(self.btn_save_drivers, 1)
+        driver_saveload_controls.addWidget(self.btn_load_drivers, 1)
+
+        bottom_layout.addLayout(delivery_gen_controls)
+        bottom_layout.addLayout(delivery_saveload_controls)
+        bottom_layout.addLayout(driver_gen_controls)
+        bottom_layout.addLayout(driver_saveload_controls)
         bottom_layout.addWidget(self.btn_tsp)
         bottom_layout.addSpacing(10)
         bottom_layout.addWidget(self.btn_simulate, alignment=QtCore.Qt.AlignCenter)
@@ -250,6 +275,11 @@ class MainWindow(QWidget):
         self.driver_input.show()
         self.btn_generate_drivers.show()
 
+        self.btn_save_deliveries.show()
+        self.btn_load_deliveries.show()
+        self.btn_save_drivers.show()
+        self.btn_load_drivers.show()
+
     def generate_deliveries(self):
         success, message = self.map_widget.delivery_viewmodel.validate_and_generate_points(self.delivery_input.text())
         if not success:
@@ -259,3 +289,23 @@ class MainWindow(QWidget):
         success, message = self.map_widget.driver_viewmodel.validate_and_generate_drivers(self.driver_input.text())
         if not success:
             QMessageBox.warning(self, "Invalid Input", message)
+
+    def save_deliveries(self):
+        # Placeholder for saving deliveries
+        print("Save Deliveries button clicked")
+        self.map_widget.delivery_viewmodel.save_deliveries_config()
+
+    def load_deliveries(self):
+        # Placeholder for loading deliveries
+        print("Load Deliveries button clicked")
+        self.map_widget.delivery_viewmodel.load_deliveries_config()
+
+    def save_drivers(self):
+        # Placeholder for saving drivers
+        print("Save Drivers button clicked")
+        self.map_widget.driver_viewmodel.save_drivers_config()
+
+    def load_drivers(self):
+        # Placeholder for loading drivers
+        print("Load Drivers button clicked")
+        self.map_widget.driver_viewmodel.load_drivers_config()

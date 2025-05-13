@@ -19,6 +19,8 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
 
     def optimize(self):
         try:
+            optimization_start_time = time.time()
+
             initial_solution, unassigned = self._generate_initial_solution()
             current_solution = deepcopy(initial_solution)
             current_unassigned = set(unassigned)
@@ -127,10 +129,14 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
 
             self.update_visualization.emit(best_solution, best_unassigned)
 
+            optimization_end_time = time.time()
+            optimization_duration = optimization_end_time - optimization_start_time
+
             final_time = self.calculate_total_time(best_solution)
             time_improvement = (initial_time - final_time) / initial_time * 100 if initial_time > 0 else 0
 
             print("\nFinal Solution Statistics:")
+            print(f"Optimization Process Took: {optimization_duration:.2f} seconds ({self._format_time_hms(optimization_duration)})")
             print(f"Total Travel Time: {self._format_time_hms(final_time)} ({final_time / 60:.2f} minutes)")
             print(f"Solution Cost: {best_cost:.2f}")
             print(f"Time Improvement: {time_improvement:.2f}%")
@@ -138,13 +144,13 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             print("=" * 50)
 
             self.finished.emit(best_solution, best_unassigned)
-            return best_solution, best_unassigned
+            return best_solution, best_unassigned, optimization_duration, time_improvement
 
         except Exception as e:
             import traceback
             traceback.print_exc()
             self.finished.emit(None, None)
-            return None, None
+            return None, None, 0.0, 0.0
 
     def _generate_initial_solution(self):
         delivery_indices = list(range(len(self.snapped_delivery_points)))

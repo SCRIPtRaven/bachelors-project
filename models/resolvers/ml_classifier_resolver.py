@@ -225,8 +225,8 @@ class MLClassifierResolver(RuleBasedResolver):
                     debug_confidences_str = ", ".join(confidence_details)
                 elif len(all_probs) > 0:
                     default_action_map_for_probs = {
-                        0: 'basic_reroute', 1: 'no_action',
-                        2: 'tight_avoidance', 3: 'wide_avoidance'
+                        0: 'reroute_basic',
+                        1: 'reroute_tight_avoidance', 2: 'reroute_wide_avoidance'
                     }
                     if len(all_probs) <= len(default_action_map_for_probs):
                         confidence_details = [f"{default_action_map_for_probs.get(i, f'Class_{i}')}: {prob:.4f}" for
@@ -242,9 +242,9 @@ class MLClassifierResolver(RuleBasedResolver):
 
             if action_type == 'no_action':
                 return self._create_no_action(driver_id, disruption)
-            elif action_type == 'tight_avoidance':
+            elif action_type == 'reroute_tight_avoidance':
                 return self._create_tight_avoidance_action(driver_id, disruption, state)
-            elif action_type == 'wide_avoidance':
+            elif action_type == 'reroute_wide_avoidance':
                 return self._create_wide_avoidance_action(driver_id, disruption, state)
             else:
                 return self._create_reroute_action(driver_id, disruption, state)
@@ -405,44 +405,51 @@ class MLClassifierResolver(RuleBasedResolver):
 
     def _predict_action_type(self, features: pd.DataFrame) -> Tuple[str, Optional[np.ndarray]]:
         if self.classifier is None:
-            return 'basic_reroute', None
+            return 'reroute_basic', None
 
         try:
             probs: Optional[np.ndarray] = None
-            prediction: str = 'basic_reroute'
+            prediction_idx: Optional[int] = None
+            raw_prediction_label: Optional[str] = None
 
             if self.model_type == 'neural_network':
                 if not HAS_TF or not isinstance(self.classifier, tf.keras.Model):
                     print(
                         "DEBUG (ML Fallback): NN model type selected but classifier is not a valid Keras model. Falling back.")
-                    return 'basic_reroute', None
-
+                    return 'reroute_basic', None
                 try:
                     features_input = features
                     raw_probs = self.classifier.predict(features_input)
                     probs = raw_probs[0] if raw_probs.ndim == 2 and raw_probs.shape[0] == 1 else raw_probs
-
                 except Exception as pred_err:
                     print(f"DEBUG (ML Fallback): NN prediction call failed: {pred_err}. Falling back.")
-                    return 'basic_reroute', None
+                    return 'reroute_basic', None
 
-                max_prob_val = np.max(probs)
+                if probs is not None and np.max(probs) < 0.15:
+                    print(f"DEBUG (ML Fallback): NN confidence ({np.max(probs):.2f}) below threshold. Falling back.")
+                    return 'reroute_basic', probs
+                
+                prediction_idx = np.argmax(probs) if probs is not None else None
 
-                if max_prob_val < 0.4:
-                    print(f"DEBUG (ML Fallback): NN confidence ({max_prob_val:.2f}) below threshold. Falling back.")
-                    return 'basic_reroute', probs
+                if self.label_encoder is not None and prediction_idx is not None:
+                    raw_prediction_label = self.label_encoder.inverse_transform([prediction_idx])[0]
+                elif prediction_idx is not None: # Fallback if no label_encoder but have index
+                    # Original map: {0: 'reroute_basic', 1: 'no_action', 2: 'reroute_tight_avoidance', 3: 'reroute_wide_avoidance'}
+                    # We remove no_action. If index 1 was 'no_action', map it to 'reroute_basic' or another default.
+                    # Let's define a map without 'no_action'.
+                    # This mapping needs to be consistent with training if label_encoder is missing.
+                    # Assuming training classes are now 0:basic, 1:tight, 2:wide (example)
+                    # For now, let's use a simplified map and if index 1 (old no_action) appears, default.
+                    action_map_no_no_action = {0: 'reroute_basic', 1: 'reroute_basic', 2: 'reroute_tight_avoidance', 3: 'reroute_wide_avoidance'}
+                    # A better approach if label_encoder is missing is to ensure model output classes don't include it.
+                    # This part is tricky without knowing the exact current output classes of the model if label_encoder is None.
+                    raw_prediction_label = action_map_no_no_action.get(prediction_idx, 'reroute_basic')
 
-                prediction_idx = np.argmax(probs)
 
-                if self.label_encoder is not None:
-                    prediction = self.label_encoder.inverse_transform([prediction_idx])[0]
-                else:
-                    action_map = {0: 'basic_reroute', 1: 'no_action', 2: 'tight_avoidance', 3: 'wide_avoidance'}
-                    prediction = action_map.get(prediction_idx, 'basic_reroute')
-            else:
+            else: # scikit-learn models
                 if not hasattr(self.classifier, 'predict'):
                     print("DEBUG (ML Fallback): Sklearn classifier missing 'predict' method. Falling back.")
-                    return 'basic_reroute', None
+                    return 'reroute_basic', None
 
                 if hasattr(self.classifier, 'predict_proba'):
                     try:
@@ -450,30 +457,61 @@ class MLClassifierResolver(RuleBasedResolver):
                         probs = raw_probs[0] if raw_probs.ndim == 2 and raw_probs.shape[0] == 1 else raw_probs
                     except Exception as pred_err:
                         print(f"DEBUG (ML Fallback): Sklearn predict_proba call failed: {pred_err}. Falling back.")
-                        return 'basic_reroute', None
+                        return 'reroute_basic', None
 
-                    max_prob_val = np.max(probs)
-
-                    if max_prob_val < 0.4:
+                    if probs is not None and np.max(probs) < 0.15:
                         print(
-                            f"DEBUG (ML Fallback): Sklearn confidence ({max_prob_val:.2f}) below threshold. Falling back.")
-                        return 'basic_reroute', probs
+                            f"DEBUG (ML Fallback): Sklearn confidence ({np.max(probs):.2f}) below threshold. Falling back.")
+                        return 'reroute_basic', probs
+                    
+                    if probs is not None and hasattr(self.classifier, 'classes_'):
+                         prediction_idx = np.argmax(probs)
+                         raw_prediction_label = self.classifier.classes_[prediction_idx]
+                    elif probs is not None: # Has predict_proba but not classes_ (unlikely for sklearn)
+                        prediction_idx = np.argmax(probs)
+                        # Defaulting again, this state is less ideal
+                        action_map_no_no_action = {0: 'reroute_basic', 1: 'reroute_basic', 2: 'reroute_tight_avoidance', 3: 'reroute_wide_avoidance'}
+                        raw_prediction_label = action_map_no_no_action.get(prediction_idx, 'reroute_basic')
 
-                    prediction = self.classifier.classes_[np.argmax(probs)]
-                else:
+                else: # Does not have predict_proba, only predict
                     try:
-                        prediction = self.classifier.predict(features)[0]
+                        # Output of predict() can be class label directly
+                        raw_prediction_label = self.classifier.predict(features)[0]
                     except Exception as pred_err:
                         print(f"DEBUG (ML Fallback): Sklearn predict call failed: {pred_err}. Falling back.")
-                        return 'basic_reroute', None
+                        return 'reroute_basic', None
 
-            if isinstance(prediction, (int, np.integer)):
-                action_map = {0: 'basic_reroute', 1: 'no_action', 2: 'tight_avoidance', 3: 'wide_avoidance'}
-                final_prediction_str = action_map.get(prediction, 'basic_reroute')
-            else:
-                final_prediction_str = str(prediction)
-                if final_prediction_str == 'no_reroute':
-                    final_prediction_str = 'no_action'
+            final_prediction_str = 'reroute_basic' # Default
+            if isinstance(raw_prediction_label, (int, np.integer)):
+                # This case implies the model (or lack of label encoder) is giving an integer.
+                # We need a mapping that EXCLUDES no_action.
+                # Example: if classes were 0:basic, 1:no_action, 2:tight, 3:wide
+                # and no_action (1) is predicted, it should become reroute_basic.
+                # This requires knowing the original integer mapping.
+                # For now, a simple map, assuming 'no_action' is not a direct integer output we want.
+                int_action_map = {
+                    0: 'reroute_basic', 
+                    # Index 1, if it was no_action, should map to reroute_basic or another default.
+                    # This depends on how the model was trained if it outputs raw integers.
+                    # Let's assume for now if 1 is predicted, it was the old 'no_action'.
+                    1: 'reroute_basic', # Remap potential 'no_action' index
+                    2: 'reroute_tight_avoidance', 
+                    3: 'reroute_wide_avoidance'
+                }
+                final_prediction_str = int_action_map.get(raw_prediction_label, 'reroute_basic')
+            elif isinstance(raw_prediction_label, str):
+                final_prediction_str = raw_prediction_label
+
+            # Explicitly prevent 'no_action' or 'no_reroute'
+            if final_prediction_str.lower() in ['no_action', 'no_reroute']:
+                final_prediction_str = 'reroute_basic'
+            
+            # Ensure the returned string is one of the valid expected action types by _select_optimal_action
+            # (excluding no_action)
+            valid_actions = ['reroute_basic', 'reroute_tight_avoidance', 'reroute_wide_avoidance']
+            if final_prediction_str not in valid_actions:
+                print(f"DEBUG (ML Warning): Predicted action '{final_prediction_str}' not in expected valid set. Defaulting to reroute_basic.")
+                final_prediction_str = 'reroute_basic'
 
             return final_prediction_str, probs
 
@@ -481,4 +519,4 @@ class MLClassifierResolver(RuleBasedResolver):
             print(f"DEBUG (ML Fallback): Error during prediction processing: {e}")
             import traceback
             traceback.print_exc()
-            return 'basic_reroute', None
+            return 'reroute_basic', None

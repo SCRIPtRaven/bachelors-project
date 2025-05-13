@@ -1,0 +1,27 @@
+[
+    {
+        "id": 1,
+        "weight_capacity": 800.0,
+        "volume_capacity": 14.5
+    },
+    {
+        "id": 2,
+        "weight_capacity": 1500.0,
+        "volume_capacity": 14.0
+    },
+    {
+        "id": 3,
+        "weight_capacity": 1100.0,
+        "volume_capacity": 13.5
+    },
+    {
+        "id": 4,
+        "weight_capacity": 1100.0,
+        "volume_capacity": 12.5
+    },
+    {
+        "id": 5,
+        "weight_capacity": 1300.0,
+        "volume_capacity": 12.0
+    }
+]

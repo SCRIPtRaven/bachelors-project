@@ -32,7 +32,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 TARGET_ACTION_TYPES = [
-    ActionType.NO_ACTION.display_name,
     ActionType.REROUTE_BASIC.display_name,
     ActionType.REROUTE_TIGHT_AVOIDANCE.display_name,
     ActionType.REROUTE_WIDE_AVOIDANCE.display_name

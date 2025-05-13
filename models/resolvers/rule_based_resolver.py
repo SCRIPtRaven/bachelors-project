@@ -264,13 +264,11 @@ class RuleBasedResolver(DisruptionResolver):
             next_delivery_index = None
             delivery_indices = state.driver_assignments.get(driver_id, [])
 
-            if not delivery_indices:
-                return None
-
-            for idx in delivery_indices:
-                if idx < len(state.deliveries):
-                    next_delivery_index = idx
-                    break
+            if delivery_indices:
+                for idx in delivery_indices:
+                    if idx < len(state.deliveries):
+                        next_delivery_index = idx
+                        break
 
             start_point = route_points[affected_segment_start]
             end_point = route_points[rerouted_segment_end_idx]
@@ -367,14 +365,11 @@ class RuleBasedResolver(DisruptionResolver):
             next_delivery_index = None
             delivery_indices = state.driver_assignments.get(driver_id, [])
 
-            if not delivery_indices:
-                # print(f"No deliveries assigned to driver {driver_id}")
-                return None
-
-            for idx in delivery_indices:
-                if idx < len(state.deliveries):
-                    next_delivery_index = idx
-                    break
+            if delivery_indices:
+                for idx in delivery_indices:
+                    if idx < len(state.deliveries):
+                        next_delivery_index = idx
+                        break
 
             start_point = route_points[affected_segment_start]
             end_point = route_points[rerouted_segment_end_idx]
@@ -384,7 +379,7 @@ class RuleBasedResolver(DisruptionResolver):
                 start_point,
                 end_point,
                 disruption,
-                buffer_ratio=1.5
+                buffer_ratio=2.0
             )
 
             if new_route is None:

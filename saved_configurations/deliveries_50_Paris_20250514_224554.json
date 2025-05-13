@@ -1,0 +1,305 @@
+{
+    "city": "Paris",
+    "points": [
+        {
+            "latitude": 48.8374113,
+            "longitude": 2.2582683,
+            "weight": 12.5,
+            "volume": 0.009
+        },
+        {
+            "latitude": 48.8801461,
+            "longitude": 2.2850998,
+            "weight": 17.5,
+            "volume": 0.103
+        },
+        {
+            "latitude": 48.8412731,
+            "longitude": 2.3248713,
+            "weight": 23.5,
+            "volume": 0.018
+        },
+        {
+            "latitude": 48.8864662,
+            "longitude": 2.2957668,
+            "weight": 15.0,
+            "volume": 0.087
+        },
+        {
+            "latitude": 48.8567498,
+            "longitude": 2.3410051,
+            "weight": 25.0,
+            "volume": 0.094
+        },
+        {
+            "latitude": 48.8792613,
+            "longitude": 2.35867,
+            "weight": 16.0,
+            "volume": 0.032
+        },
+        {
+            "latitude": 48.8333733,
+            "longitude": 2.3331235,
+            "weight": 28.0,
+            "volume": 0.052
+        },
+        {
+            "latitude": 48.8494121,
+            "longitude": 2.3567581,
+            "weight": 14.0,
+            "volume": 0.083
+        },
+        {
+            "latitude": 48.8356849,
+            "longitude": 2.3753842,
+            "weight": 11.5,
+            "volume": 0.06
+        },
+        {
+            "latitude": 48.83457,
+            "longitude": 2.26695,
+            "weight": 2.0,
+            "volume": 0.06
+        },
+        {
+            "latitude": 48.8415678,
+            "longitude": 2.3183239,
+            "weight": 21.0,
+            "volume": 0.04
+        },
+        {
+            "latitude": 48.8204578,
+            "longitude": 2.3428405,
+            "weight": 30.0,
+            "volume": 0.029
+        },
+        {
+            "latitude": 48.8392633,
+            "longitude": 2.2919595,
+            "weight": 12.5,
+            "volume": 0.122
+        },
+        {
+            "latitude": 48.8922497,
+            "longitude": 2.3009416,
+            "weight": 26.5,
+            "volume": 0.054
+        },
+        {
+            "latitude": 48.8641418,
+            "longitude": 2.4105045,
+            "weight": 29.5,
+            "volume": 0.016
+        },
+        {
+            "latitude": 48.8817242,
+            "longitude": 2.3055969,
+            "weight": 11.5,
+            "volume": 0.079
+        },
+        {
+            "latitude": 48.8526066,
+            "longitude": 2.2652939,
+            "weight": 24.0,
+            "volume": 0.079
+        },
+        {
+            "latitude": 48.8782695,
+            "longitude": 2.2704285,
+            "weight": 14.0,
+            "volume": 0.124
+        },
+        {
+            "latitude": 48.8838672,
+            "longitude": 2.2823148,
+            "weight": 26.0,
+            "volume": 0.058
+        },
+        {
+            "latitude": 48.823927,
+            "longitude": 2.3069929,
+            "weight": 24.0,
+            "volume": 0.114
+        },
+        {
+            "latitude": 48.8479288,
+            "longitude": 2.2601643,
+            "weight": 24.5,
+            "volume": 0.014
+        },
+        {
+            "latitude": 48.8389576,
+            "longitude": 2.282194,
+            "weight": 3.0,
+            "volume": 0.111
+        },
+        {
+            "latitude": 48.8785122,
+            "longitude": 2.3540762,
+            "weight": 8.0,
+            "volume": 0.023
+        },
+        {
+            "latitude": 48.8417241,
+            "longitude": 2.4095903,
+            "weight": 3.0,
+            "volume": 0.104
+        },
+        {
+            "latitude": 48.8753256,
+            "longitude": 2.3509072,
+            "weight": 1.0,
+            "volume": 0.12
+        },
+        {
+            "latitude": 48.8433503,
+            "longitude": 2.2999452,
+            "weight": 20.5,
+            "volume": 0.112
+        },
+        {
+            "latitude": 48.841855,
+            "longitude": 2.3091474,
+            "weight": 27.5,
+            "volume": 0.04
+        },
+        {
+            "latitude": 48.8508202,
+            "longitude": 2.2670802,
+            "weight": 27.0,
+            "volume": 0.094
+        },
+        {
+            "latitude": 48.8559332,
+            "longitude": 2.3342467,
+            "weight": 12.0,
+            "volume": 0.063
+        },
+        {
+            "latitude": 48.8867221,
+            "longitude": 2.3611749,
+            "weight": 23.5,
+            "volume": 0.107
+        },
+        {
+            "latitude": 48.8733219,
+            "longitude": 2.3243018,
+            "weight": 26.5,
+            "volume": 0.011
+        },
+        {
+            "latitude": 48.8534144,
+            "longitude": 2.3261932,
+            "weight": 9.0,
+            "volume": 0.026
+        },
+        {
+            "latitude": 48.8724398,
+            "longitude": 2.3668101,
+            "weight": 8.0,
+            "volume": 0.054
+        },
+        {
+            "latitude": 48.8367875,
+            "longitude": 2.2556906,
+            "weight": 11.0,
+            "volume": 0.067
+        },
+        {
+            "latitude": 48.8547443,
+            "longitude": 2.3781359,
+            "weight": 26.5,
+            "volume": 0.103
+        },
+        {
+            "latitude": 48.8661922,
+            "longitude": 2.3696437,
+            "weight": 26.0,
+            "volume": 0.117
+        },
+        {
+            "latitude": 48.8486399,
+            "longitude": 2.2851216,
+            "weight": 29.0,
+            "volume": 0.012
+        },
+        {
+            "latitude": 48.8651519,
+            "longitude": 2.3751944,
+            "weight": 2.0,
+            "volume": 0.08
+        },
+        {
+            "latitude": 48.8261209,
+            "longitude": 2.2970244,
+            "weight": 26.5,
+            "volume": 0.102
+        },
+        {
+            "latitude": 48.8218222,
+            "longitude": 2.3633358,
+            "weight": 22.0,
+            "volume": 0.073
+        },
+        {
+            "latitude": 48.8709849,
+            "longitude": 2.396911,
+            "weight": 8.5,
+            "volume": 0.024
+        },
+        {
+            "latitude": 48.8448361,
+            "longitude": 2.2872743,
+            "weight": 19.0,
+            "volume": 0.102
+        },
+        {
+            "latitude": 48.841856,
+            "longitude": 2.3631949,
+            "weight": 2.0,
+            "volume": 0.086
+        },
+        {
+            "latitude": 48.8858694,
+            "longitude": 2.3064298,
+            "weight": 6.5,
+            "volume": 0.122
+        },
+        {
+            "latitude": 48.8400846,
+            "longitude": 2.2798354,
+            "weight": 2.0,
+            "volume": 0.1
+        },
+        {
+            "latitude": 48.8845981,
+            "longitude": 2.2968885,
+            "weight": 17.0,
+            "volume": 0.117
+        },
+        {
+            "latitude": 48.8381616,
+            "longitude": 2.2524299,
+            "weight": 7.5,
+            "volume": 0.051
+        },
+        {
+            "latitude": 48.8715745,
+            "longitude": 2.3338944,
+            "weight": 7.0,
+            "volume": 0.088
+        },
+        {
+            "latitude": 48.8393302,
+            "longitude": 2.2969596,
+            "weight": 27.5,
+            "volume": 0.065
+        },
+        {
+            "latitude": 48.8884318,
+            "longitude": 2.2988408,
+            "weight": 21.5,
+            "volume": 0.034
+        }
+    ]
+}
