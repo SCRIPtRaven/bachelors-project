@@ -29,6 +29,7 @@ tensorflow = "^2.19.0"
 xgboost = "3.0.0"
 seaborn = "^0.13.2"
 imbalanced-learn = "^0.12.3"
+pylint = "^3.3.7"
 
 [build-system]
 requires = ["poetry-core"]
