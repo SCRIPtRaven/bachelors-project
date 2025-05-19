@@ -33,10 +33,10 @@ class DeliveryConfig:
 
 class OptimizationConfig:
     SETTINGS = {
-        'VISUALIZE_PROCESS': False,
-        'INITIAL_TEMPERATURE': 250,
-        'COOLING_RATE': 0.95,
-        'MIN_TEMPERATURE': 0.5,
+        'VISUALIZE_PROCESS': True,
+        'INITIAL_TEMPERATURE': 500,
+        'COOLING_RATE': 0.975,
+        'MIN_TEMPERATURE': 0.1,
         'ITERATIONS_PER_TEMPERATURE': 100,
     }
 
