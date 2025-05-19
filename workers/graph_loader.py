@@ -2,16 +2,12 @@ import os
 
 from PyQt5 import QtCore
 
-from config.paths import get_graph_file_path, get_travel_times_path
+from config.config import PathsConfig
 from models.services import graph
 from models.services.graph import download_and_save_graph, get_largest_connected_component
 
 
 class GraphLoadWorker(QtCore.QThread):
-    """
-    Worker thread for loading graph data asynchronously.
-    Handles both loading existing graphs and downloading new ones.
-    """
     finished = QtCore.pyqtSignal(bool, str, object, str)
 
     def __init__(self, city_name):
@@ -20,12 +16,18 @@ class GraphLoadWorker(QtCore.QThread):
 
     def run(self):
         try:
-            graph_path = get_graph_file_path(self.city_name)
-            travel_times_path = get_travel_times_path(self.city_name)
+            graph_path = PathsConfig.get_graph_file_path(self.city_name)
+            travel_times_path = PathsConfig.get_travel_times_path(self.city_name)
 
             try:
                 G = graph.load_graph(filename=graph_path)
                 G = get_largest_connected_component(G)
+
+                # Ensure G.graph['name'] is set
+                if not hasattr(G, 'graph') or not isinstance(G.graph, dict):
+                    G.graph = {}
+                if 'name' not in G.graph or G.graph['name'] != self.city_name:
+                    G.graph['name'] = self.city_name
 
                 if os.path.isfile(travel_times_path):
                     graph.update_travel_times_from_csv(G, travel_times_path)
@@ -37,6 +39,11 @@ class GraphLoadWorker(QtCore.QThread):
                 if success:
                     G = graph.load_graph(filename=graph_path)
                     G = get_largest_connected_component(G)
+                    # Ensure G.graph['name'] is set
+                    if not hasattr(G, 'graph') or not isinstance(G.graph, dict):
+                        G.graph = {}
+                    if 'name' not in G.graph or G.graph['name'] != self.city_name:
+                        G.graph['name'] = self.city_name
                     self.finished.emit(True, "Graph downloaded and loaded successfully", G, self.city_name)
                 else:
                     self.finished.emit(False, "Failed to download graph", None, self.city_name)

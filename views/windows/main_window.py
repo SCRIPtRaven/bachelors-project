@@ -9,19 +9,39 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Kaunas Route Planner")
-        self.setFixedSize(1600, 1000)
+        self.setWindowTitle("City Route Planner")
+
+        screen = QtWidgets.QApplication.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+
+        width = int(screen_geometry.width() * 0.9)
+        height = int(screen_geometry.height() * 0.9)
+        self.resize(width, height)
+
+        self.move(
+            (screen_geometry.width() - width) // 2,
+            (screen_geometry.height() - height) // 2
+        )
+
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding
+        )
+
+        self.setMinimumSize(800, 600)
 
         self.init_widgets()
-
         self.init_layout()
-
         self.connect_signals()
 
     def init_widgets(self):
-        """Initialize all widgets but keep them hidden initially"""
         self.map_widget = MapWidget(self)
         self.map_widget.hide()
+
+        self.map_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding
+        )
 
         self.stats_widget = QWidget()
         self.stats_layout = QVBoxLayout(self.stats_widget)
@@ -57,6 +77,16 @@ class MainWindow(QWidget):
         self.btn_generate_drivers = QPushButton("Generate Drivers")
         self.btn_generate_drivers.hide()
 
+        self.btn_save_deliveries = QPushButton("Save Deliveries")
+        self.btn_save_deliveries.hide()
+        self.btn_load_deliveries = QPushButton("Load Deliveries")
+        self.btn_load_deliveries.hide()
+
+        self.btn_save_drivers = QPushButton("Save Drivers")
+        self.btn_save_drivers.hide()
+        self.btn_load_drivers = QPushButton("Load Drivers")
+        self.btn_load_drivers.hide()
+
         self.btn_simulate = QPushButton("Simulate Deliveries")
         self.btn_simulate.setEnabled(False)
         self.btn_simulate.hide()
@@ -77,36 +107,7 @@ class MainWindow(QWidget):
             }
         """)
 
-        self.solution_switch = QtWidgets.QPushButton("Simulated Annealing")
-        self.solution_switch.setCheckable(True)
-        self.solution_switch.setEnabled(False)
-        self.solution_switch.clicked.connect(self.on_solution_switch_clicked)
-        self.solution_switch.hide()
-        self.solution_switch.setStyleSheet("""
-                QPushButton {
-                    min-height: 35px;
-                    min-width: 200px;
-                    background-color: #4CAF50;
-                    color: white;
-                    border: none;
-                    border-radius: 5px;
-                    padding: 5px 15px;
-                    text-align: center;
-                    transition: background-color 0.3s;
-                }
-                QPushButton:checked {
-                    background-color: #2196F3;
-                }
-                QPushButton:hover {
-                    opacity: 0.9;
-                }
-                QPushButton:disabled {
-                    background-color: #cccccc;
-                }
-            """)
-
     def init_layout(self):
-        """Set up the initial layout with just the load button"""
         self.main_layout = QVBoxLayout(self)
 
         bottom_frame = QFrame()
@@ -118,7 +119,6 @@ class MainWindow(QWidget):
         self.main_layout.addWidget(bottom_frame)
 
     def connect_signals(self):
-        """Connect all signal handlers"""
         self.btn_generate_deliveries.clicked.connect(self.generate_deliveries)
         self.btn_tsp.clicked.connect(self.map_widget.find_shortest_route)
         self.btn_load.clicked.connect(self.handle_load_data)
@@ -126,17 +126,17 @@ class MainWindow(QWidget):
         self.btn_generate_drivers.clicked.connect(self.generate_drivers)
         self.btn_simulate.clicked.connect(self.map_widget.run_simulation)
 
+        self.btn_save_deliveries.clicked.connect(self.save_deliveries)
+        self.btn_load_deliveries.clicked.connect(self.load_deliveries)
+        self.btn_save_drivers.clicked.connect(self.save_drivers)
+        self.btn_load_drivers.clicked.connect(self.load_drivers)
+
     def handle_load_data(self):
-        """Open city selector dialog and handle the city selection"""
         selector = CitySelector(self)
         selector.city_selected.connect(self.map_widget.load_graph_data)
         selector.exec_()
 
     def show_full_ui(self, success):
-        """
-        Creates the main application interface after successful data loading.
-        The interface consists of a map panel on the left and a control/stats panel on the right.
-        """
         if not success:
             return
 
@@ -175,11 +175,9 @@ class MainWindow(QWidget):
                 border: 1px solid #ddd;
                 border-radius: 5px;
                 padding: 5px 15px;
-                box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
             }
             QPushButton:hover {
                 background-color: #f8f8f8;
-                box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.15);
             }
             QLineEdit {
                 min-height: 35px;
@@ -197,22 +195,29 @@ class MainWindow(QWidget):
         bottom_layout = QVBoxLayout(bottom_section)
         bottom_layout.setContentsMargins(0, 0, 0, 0)
 
-        delivery_controls = QHBoxLayout()
+        delivery_gen_controls = QHBoxLayout()
         self.delivery_input.setPlaceholderText("Enter number of delivery points")
-        delivery_controls.addWidget(self.delivery_input, 3)
-        delivery_controls.addWidget(self.btn_generate_deliveries, 1)
+        delivery_gen_controls.addWidget(self.delivery_input, 3)
+        delivery_gen_controls.addWidget(self.btn_generate_deliveries, 1)
 
-        driver_controls = QHBoxLayout()
+        delivery_saveload_controls = QHBoxLayout()
+        delivery_saveload_controls.addWidget(self.btn_save_deliveries, 1)
+        delivery_saveload_controls.addWidget(self.btn_load_deliveries, 1)
+
+        driver_gen_controls = QHBoxLayout()
         self.driver_input.setPlaceholderText("Enter number of drivers")
-        driver_controls.addWidget(self.driver_input, 3)
-        driver_controls.addWidget(self.btn_generate_drivers, 1)
+        driver_gen_controls.addWidget(self.driver_input, 3)
+        driver_gen_controls.addWidget(self.btn_generate_drivers, 1)
 
-        bottom_layout.addLayout(delivery_controls)
-        bottom_layout.addLayout(driver_controls)
+        driver_saveload_controls = QHBoxLayout()
+        driver_saveload_controls.addWidget(self.btn_save_drivers, 1)
+        driver_saveload_controls.addWidget(self.btn_load_drivers, 1)
+
+        bottom_layout.addLayout(delivery_gen_controls)
+        bottom_layout.addLayout(delivery_saveload_controls)
+        bottom_layout.addLayout(driver_gen_controls)
+        bottom_layout.addLayout(driver_saveload_controls)
         bottom_layout.addWidget(self.btn_tsp)
-        self.solution_switch.setFixedWidth(200)
-        bottom_layout.addSpacing(10)
-        bottom_layout.addWidget(self.solution_switch, alignment=QtCore.Qt.AlignCenter)
         bottom_layout.addSpacing(10)
         bottom_layout.addWidget(self.btn_simulate, alignment=QtCore.Qt.AlignCenter)
         self.btn_simulate.show()
@@ -270,19 +275,37 @@ class MainWindow(QWidget):
         self.driver_input.show()
         self.btn_generate_drivers.show()
 
+        self.btn_save_deliveries.show()
+        self.btn_load_deliveries.show()
+        self.btn_save_drivers.show()
+        self.btn_load_drivers.show()
+
     def generate_deliveries(self):
-        """Generate the requested number of delivery points"""
         success, message = self.map_widget.delivery_viewmodel.validate_and_generate_points(self.delivery_input.text())
         if not success:
             QMessageBox.warning(self, "Invalid Input", message)
 
     def generate_drivers(self):
-        """Generate the requested number of delivery drivers"""
         success, message = self.map_widget.driver_viewmodel.validate_and_generate_drivers(self.driver_input.text())
         if not success:
             QMessageBox.warning(self, "Invalid Input", message)
 
-    def on_solution_switch_clicked(self):
-        is_greedy = self.solution_switch.isChecked()
-        solution_name, button_text = self.map_widget.optimization_viewmodel.toggle_solution_view(is_greedy)
-        self.solution_switch.setText(button_text)
+    def save_deliveries(self):
+        # Placeholder for saving deliveries
+        print("Save Deliveries button clicked")
+        self.map_widget.delivery_viewmodel.save_deliveries_config()
+
+    def load_deliveries(self):
+        # Placeholder for loading deliveries
+        print("Load Deliveries button clicked")
+        self.map_widget.delivery_viewmodel.load_deliveries_config()
+
+    def save_drivers(self):
+        # Placeholder for saving drivers
+        print("Save Drivers button clicked")
+        self.map_widget.driver_viewmodel.save_drivers_config()
+
+    def load_drivers(self):
+        # Placeholder for loading drivers
+        print("Load Drivers button clicked")
+        self.map_widget.driver_viewmodel.load_drivers_config()

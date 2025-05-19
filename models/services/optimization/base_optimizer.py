@@ -6,10 +6,6 @@ from PyQt5 import QtCore
 
 
 class DeliveryOptimizer(QtCore.QObject):
-    """
-    Base class for delivery optimization algorithms that provides common functionality
-    for calculating routes, travel times, and solution evaluation.
-    """
     finished = QtCore.pyqtSignal(object, object)
 
     def __init__(self, delivery_drivers, snapped_delivery_points, G, warehouse_coords):
@@ -207,7 +203,4 @@ class DeliveryOptimizer(QtCore.QObject):
         return total_cost
 
     def optimize(self):
-        """
-        Abstract method to be implemented by derived classes.
-        """
         raise NotImplementedError("Subclasses must implement optimize()")

@@ -1,3 +1,4 @@
+import math
 from functools import lru_cache
 
 import networkx as nx
@@ -6,24 +7,6 @@ import osmnx as ox
 
 @lru_cache(maxsize=32)
 def get_city_coordinates(city_name):
-    """
-    Get the center coordinates for a city using OpenStreetMap's geocoding service.
-
-    This function uses caching to avoid repeated API calls for the same city name.
-    The cache stores up to 32 different city results.
-
-    Args:
-        city_name (str): Full city name with country, e.g. "Kaunas, Lithuania"
-
-    Returns:
-        tuple: A pair of ((latitude, longitude), zoom_level)
-            The coordinates are floats representing the city center
-            The zoom level is automatically calculated based on city size
-
-    Example:
-        coords, zoom = get_city_coordinates("Kaunas, Lithuania")
-        # Returns something like ((54.8985, 23.9036), 12)
-    """
     try:
         location = ox.geocode(city_name)
         zoom = calculate_zoom_level(city_name)
@@ -34,22 +17,6 @@ def get_city_coordinates(city_name):
 
 
 def calculate_zoom_level(city_name):
-    """
-    Calculate an appropriate zoom level for a city based on its geographical size.
-
-    This function analyzes the city's boundaries to determine an appropriate
-    zoom level for map display. Larger cities get a lower zoom level (more zoomed out)
-    while smaller cities get a higher zoom level (more zoomed in).
-
-    Args:
-        city_name (str): Full city name with country, e.g. "Kaunas, Lithuania"
-
-    Returns:
-        int: A zoom level value between 11 and 13
-            11 - Large cities
-            12 - Medium cities
-            13 - Small cities
-    """
     try:
         gdf = ox.geocode_to_gdf(city_name)
 
@@ -74,7 +41,7 @@ def find_accessible_node(G, lat, lon, center_node=None, search_radius=1000):
     max_radius = 5000
     while search_radius <= max_radius:
         try:
-            node_id = ox.nearest_nodes(G, X=lon, Y=lat)
+            node_id = ox.nearest_nodes(G, X=float(lon), Y=float(lat))
             if node_id in G.nodes:
                 if center_node is None or nx.has_path(G, node_id, center_node):
                     node = G.nodes[node_id]
@@ -86,3 +53,19 @@ def find_accessible_node(G, lat, lon, center_node=None, search_radius=1000):
         print(f"Expanding search radius to {search_radius}m")
 
     raise ValueError(f"No accessible node found near ({lat:.6f}, {lon:.6f})")
+
+
+def calculate_haversine_distance(point1, point2):
+    lat1, lon1 = point1
+    lat2, lon2 = point2
+
+    lat1, lon1 = math.radians(lat1), math.radians(lon1)
+    lat2, lon2 = math.radians(lat2), math.radians(lon2)
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    c = 2 * math.asin(math.sqrt(a))
+    r = 6371000  # Earth radius in meters
+
+    return c * r

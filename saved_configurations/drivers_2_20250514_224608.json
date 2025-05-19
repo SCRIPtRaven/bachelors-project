@@ -1,0 +1,12 @@
+[
+    {
+        "id": 1,
+        "weight_capacity": 1400.0,
+        "volume_capacity": 8.5
+    },
+    {
+        "id": 2,
+        "weight_capacity": 1300.0,
+        "volume_capacity": 14.5
+    }
+]

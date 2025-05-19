@@ -1,46 +1,27 @@
-import math
 from colorsys import hsv_to_rgb
+from typing import List, Tuple, Optional
+
+import networkx as nx
+import osmnx as ox
+
+from config.config import RouteConfig
+from models.entities.disruption import Disruption, DisruptionType
+from utils.geo_utils import calculate_haversine_distance
 
 
 class RouteColorManager:
-    """
-    Advanced color management system that ensures maximum visual distinction between routes,
-    especially for neighboring routes, using perceptual color spacing and contrast optimization.
-    """
 
     def __init__(self):
-        self.golden_ratio = (1 + math.sqrt(5)) / 2
-
-        self.base_hues = [
-            0.0,  # Red
-            0.33,  # Green
-            0.66,  # Blue
-            0.15,  # Yellow-Orange
-            0.45,  # Turquoise
-            0.75,  # Purple
-            0.05,  # Orange
-            0.25,  # Yellow-Green
-            0.55,  # Sky Blue
-            0.85  # Magenta
-        ]
-
-        self.saturation_levels = [1.0, 0.85, 0.7]
-        self.brightness_levels = [0.95, 0.75, 0.55]
-
-        self.patterns = [
-            {'type': 'solid', 'weight': 4, 'dash_array': None},
-            {'type': 'dashed', 'weight': 4, 'dash_array': '10, 10'},
-            {'type': 'dotted', 'weight': 4, 'dash_array': '3, 7'}
-        ]
+        self.golden_ratio = RouteConfig.GOLDEN_RATIO
+        self.base_hues = RouteConfig.BASE_HUES
+        self.saturation_levels = RouteConfig.SATURATION_LEVELS
+        self.brightness_levels = RouteConfig.BRIGHTNESS_LEVELS
+        self.patterns = RouteConfig.LINE_PATTERNS
 
         self.style_cache = {}
         self.used_combinations = set()
 
     def get_route_style(self, index, total_routes):
-        """
-        Generates a visually distinct style for each route, ensuring neighboring routes
-        are easily distinguishable.
-        """
         cache_key = (index, total_routes)
         if cache_key in self.style_cache:
             return self.style_cache[cache_key]
@@ -77,3 +58,89 @@ class RouteColorManager:
 
         self.style_cache[cache_key] = style
         return style
+
+
+def calculate_route_length(route: List[Tuple[float, float]]) -> float:
+    if not route or len(route) < 2:
+        return 0.0
+
+    total_length = 0.0
+    for i in range(len(route) - 1):
+        start_point = route[i]
+        end_point = route[i + 1]
+        segment_length = calculate_haversine_distance(start_point, end_point)
+        total_length += segment_length
+
+    return total_length
+
+
+def calculate_travel_time(route: List[Tuple[float, float]], graph: Optional[nx.Graph] = None,
+                          disruption: Optional[Disruption] = None) -> float:
+    if not route or len(route) < 2:
+        return 0.0
+
+    if graph is not None and disruption is not None and disruption.type == DisruptionType.ROAD_CLOSURE:
+        disruption_radius = disruption.affected_area_radius
+        for point in route:
+            if calculate_haversine_distance(point, disruption.location) <= disruption_radius:
+                return float('inf')
+
+    if graph is not None:
+        total_time = 0.0
+        for i in range(len(route) - 1):
+            start_point = route[i]
+            end_point = route[i + 1]
+
+            try:
+                start_node = ox.nearest_nodes(graph, X=start_point[1], Y=start_point[0])
+                end_node = ox.nearest_nodes(graph, X=end_point[1], Y=end_point[0])
+
+                if start_node not in graph or end_node not in graph:
+                    return float('inf')
+
+                segment_time = nx.shortest_path_length(graph, source=start_node, target=end_node, weight='travel_time')
+                total_time += segment_time
+
+            except (nx.NodeNotFound, nx.NetworkXNoPath):
+                return float('inf')
+            except Exception as e:
+                return float('inf')
+
+        return total_time
+
+    total_length = calculate_route_length(route)
+    average_speed = 8.33
+    if average_speed <= 0: return float('inf')
+    return total_length / average_speed
+
+
+def get_distance_along_route(route_points: List[Tuple[float, float]], target_index: int) -> float:
+    if not route_points or target_index <= 0:
+        return 0.0
+
+    return calculate_route_length(route_points[:target_index + 1])
+
+
+def find_closest_point_index_on_route(route_points: List[Tuple[float, float]], location: Tuple[float, float]) -> int:
+    if not route_points:
+        return -1
+
+    min_dist = float('inf')
+    closest_idx = -1
+    for i, point in enumerate(route_points):
+        dist = calculate_haversine_distance(point, location)
+        if dist < min_dist:
+            min_dist = dist
+            closest_idx = i
+    return closest_idx
+
+
+def find_route_enter_disruption_index(route_points: List[Tuple[float, float]], disruption_location: Tuple[float, float],
+                                      disruption_radius: float, start_index: int = 0) -> int:
+    if not route_points:
+        return -1
+
+    for i in range(start_index, len(route_points)):
+        if calculate_haversine_distance(route_points[i], disruption_location) <= disruption_radius:
+            return i
+    return -1

@@ -1,7 +1,7 @@
 import math
 import random
 
-from config.delivery_settings import PACKAGE_CONSTRAINTS, DRIVER_CONSTRAINTS, INNER_POINTS_RATIO
+from config.config import DeliveryConfig
 from models.entities.delivery import Delivery
 from models.entities.driver import Driver
 
@@ -9,17 +9,20 @@ from models.entities.driver import Driver
 class GeolocationService:
     @staticmethod
     def generate_random_package_properties():
-        """Generate random weight and volume within defined constraints."""
-        weight_steps = int((PACKAGE_CONSTRAINTS['weight']['max'] -
-                            PACKAGE_CONSTRAINTS['weight']['min']) / PACKAGE_CONSTRAINTS['weight']['step'])
-        volume_steps = int((PACKAGE_CONSTRAINTS['volume']['max'] -
-                            PACKAGE_CONSTRAINTS['volume']['min']) / PACKAGE_CONSTRAINTS['volume']['step'])
+        weight_steps = int((DeliveryConfig.PACKAGE_CONSTRAINTS['weight']['max'] -
+                            DeliveryConfig.PACKAGE_CONSTRAINTS['weight']['min']) /
+                           DeliveryConfig.PACKAGE_CONSTRAINTS['weight']['step'])
+        volume_steps = int((DeliveryConfig.PACKAGE_CONSTRAINTS['volume']['max'] -
+                            DeliveryConfig.PACKAGE_CONSTRAINTS['volume']['min']) /
+                           DeliveryConfig.PACKAGE_CONSTRAINTS['volume']['step'])
 
         weight_step_count = random.randint(0, weight_steps)
         volume_step_count = random.randint(0, volume_steps)
 
-        weight = PACKAGE_CONSTRAINTS['weight']['min'] + (weight_step_count * PACKAGE_CONSTRAINTS['weight']['step'])
-        volume = PACKAGE_CONSTRAINTS['volume']['min'] + (volume_step_count * PACKAGE_CONSTRAINTS['volume']['step'])
+        weight = DeliveryConfig.PACKAGE_CONSTRAINTS['weight']['min'] + (
+                weight_step_count * DeliveryConfig.PACKAGE_CONSTRAINTS['weight']['step'])
+        volume = DeliveryConfig.PACKAGE_CONSTRAINTS['volume']['min'] + (
+                volume_step_count * DeliveryConfig.PACKAGE_CONSTRAINTS['volume']['step'])
 
         weight = round(weight, 2)
         volume = round(volume, 3)
@@ -28,16 +31,6 @@ class GeolocationService:
 
     @staticmethod
     def generate_delivery_points(bounds, num_points):
-        """
-        Generate delivery points using a balanced approach between clustering and spread.
-
-        Args:
-            bounds: Tuple of (min_lat, max_lat, min_lon, max_lon)
-            num_points: Number of delivery points to generate
-
-        Returns:
-            List of DeliveryPoint objects
-        """
         min_lat, max_lat, min_lon, max_lon = bounds
 
         lat_range = max_lat - min_lat
@@ -52,7 +45,7 @@ class GeolocationService:
         while len(points) < num_points and attempts < max_attempts:
             attempts += 1
 
-            if random.random() < INNER_POINTS_RATIO:
+            if random.random() < DeliveryConfig.INNER_POINTS_RATIO:
                 margin = 0.15
                 lat = random.uniform(
                     min_lat + lat_range * margin,
@@ -89,21 +82,22 @@ class GeolocationService:
 
     @staticmethod
     def generate_random_driver_properties():
-        """Generate random weight and volume capacities within defined constraints."""
-        weight_steps = int((DRIVER_CONSTRAINTS['weight_capacity']['max'] -
-                            DRIVER_CONSTRAINTS['weight_capacity']['min']) / DRIVER_CONSTRAINTS['weight_capacity'][
+        weight_steps = int((DeliveryConfig.DRIVER_CONSTRAINTS['weight_capacity']['max'] -
+                            DeliveryConfig.DRIVER_CONSTRAINTS['weight_capacity']['min']) /
+                           DeliveryConfig.DRIVER_CONSTRAINTS['weight_capacity'][
                                'step'])
-        volume_steps = int((DRIVER_CONSTRAINTS['volume_capacity']['max'] -
-                            DRIVER_CONSTRAINTS['volume_capacity']['min']) / DRIVER_CONSTRAINTS['volume_capacity'][
+        volume_steps = int((DeliveryConfig.DRIVER_CONSTRAINTS['volume_capacity']['max'] -
+                            DeliveryConfig.DRIVER_CONSTRAINTS['volume_capacity']['min']) /
+                           DeliveryConfig.DRIVER_CONSTRAINTS['volume_capacity'][
                                'step'])
 
         weight_step_count = random.randint(0, weight_steps)
         volume_step_count = random.randint(0, volume_steps)
 
-        weight_capacity = (DRIVER_CONSTRAINTS['weight_capacity']['min'] +
-                           (weight_step_count * DRIVER_CONSTRAINTS['weight_capacity']['step']))
-        volume_capacity = (DRIVER_CONSTRAINTS['volume_capacity']['min'] +
-                           (volume_step_count * DRIVER_CONSTRAINTS['volume_capacity']['step']))
+        weight_capacity = (DeliveryConfig.DRIVER_CONSTRAINTS['weight_capacity']['min'] +
+                           (weight_step_count * DeliveryConfig.DRIVER_CONSTRAINTS['weight_capacity']['step']))
+        volume_capacity = (DeliveryConfig.DRIVER_CONSTRAINTS['volume_capacity']['min'] +
+                           (volume_step_count * DeliveryConfig.DRIVER_CONSTRAINTS['volume_capacity']['step']))
 
         weight_capacity = round(weight_capacity, 1)
         volume_capacity = round(volume_capacity, 2)
@@ -112,7 +106,6 @@ class GeolocationService:
 
     @staticmethod
     def generate_delivery_drivers(num_drivers):
-        """Generate the specified number of delivery drivers with random capacities."""
         drivers = []
         for i in range(num_drivers):
             weight_capacity, volume_capacity = GeolocationService.generate_random_driver_properties()

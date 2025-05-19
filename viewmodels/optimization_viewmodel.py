@@ -6,7 +6,7 @@ import networkx as nx
 import osmnx as ox
 from PyQt5 import QtCore
 
-from config.optimization_settings import validate_settings, OPTIMIZATION_SETTINGS
+from config.config import SimulationConfig
 from models.services.optimization.simulated_annealing import SimulatedAnnealingOptimizer
 from utils.route_utils import RouteColorManager
 from viewmodels.viewmodel_messenger import MessageType
@@ -15,9 +15,11 @@ from viewmodels.viewmodel_messenger import MessageType
 class OptimizationViewModel(QtCore.QObject):
     optimization_finished = QtCore.pyqtSignal(object, object)
     visualization_data_ready = QtCore.pyqtSignal(object)
-    solution_switch_available = QtCore.pyqtSignal(bool)
     enable_simulation_button = QtCore.pyqtSignal(bool)
     request_enable_ui = QtCore.pyqtSignal(bool)
+
+    action_stats_updated = QtCore.pyqtSignal(int, int, int, float)
+    action_log_event = QtCore.pyqtSignal(str, str)
 
     request_show_loading = QtCore.pyqtSignal()
     request_hide_loading = QtCore.pyqtSignal()
@@ -29,14 +31,16 @@ class OptimizationViewModel(QtCore.QObject):
     request_start_simulation = QtCore.pyqtSignal(list)
     request_set_simulation_speed = QtCore.pyqtSignal(float)
     request_show_message = QtCore.pyqtSignal(str, str, str)
+    request_load_disruptions = QtCore.pyqtSignal(list)
 
     _route_calculation_executor = ThreadPoolExecutor(max_workers=2)
 
-    def __init__(self, driver_viewmodel=None, delivery_viewmodel=None, messenger=None):
+    def __init__(self, driver_viewmodel=None, delivery_viewmodel=None, messenger=None, disruption_viewmodel=None):
         super().__init__()
         self.route_color_manager = RouteColorManager()
         self.driver_viewmodel = driver_viewmodel
         self.delivery_viewmodel = delivery_viewmodel
+        self.disruption_viewmodel = disruption_viewmodel
         self.messenger = messenger
 
         self.current_solution = None
@@ -49,10 +53,6 @@ class OptimizationViewModel(QtCore.QObject):
         self.delivery_drivers = None
         self.snapped_delivery_points = None
 
-        self.sa_solution = None
-        self.sa_unassigned = None
-        self.greedy_solution = None
-        self.greedy_unassigned = None
         self.current_view = "Simulated Annealing"
 
         self.last_visualized_solution = None
@@ -68,9 +68,38 @@ class OptimizationViewModel(QtCore.QObject):
             self.messenger.subscribe(MessageType.GRAPH_LOADED, self.handle_graph_loaded)
             self.messenger.subscribe(MessageType.DELIVERY_POINTS_UPDATED, self.handle_delivery_points_updated)
             self.messenger.subscribe(MessageType.DRIVER_UPDATED, self.handle_drivers_updated)
+            self.messenger.subscribe(MessageType.DISRUPTION_VISUALIZATION, self.handle_disruption_visualization)
+
+        if self.disruption_viewmodel:
+            self.disruption_viewmodel.action_log_updated.connect(self.handle_action_log)
+
+    def handle_action_log(self, message, entry_type=None):
+        entry_type = "action"
+        if "reroute" in message.lower():
+            entry_type = "reroute"
+        elif "reassign" in message.lower():
+            entry_type = "reassign"
+        elif "wait" in message.lower():
+            entry_type = "wait"
+        elif "skip" in message.lower():
+            entry_type = "skip"
+        elif "disruption" in message.lower():
+            entry_type = "disruption"
+
+        self.action_log_event.emit(message, entry_type)
+
+        if hasattr(self.disruption_viewmodel, 'simulation_controller'):
+            controller = self.disruption_viewmodel.simulation_controller
+            time_impact = controller.original_estimated_time - controller.current_estimated_time
+
+            self.action_stats_updated.emit(
+                controller.disruption_count,
+                controller.action_count,
+                controller.recalculation_count,
+                time_impact
+            )
 
     def prepare_optimization(self, delivery_drivers, snapped_delivery_points, graph):
-        """Prepare data for optimization"""
         self.delivery_drivers = delivery_drivers
         self.snapped_delivery_points = snapped_delivery_points
         self.G = graph
@@ -86,15 +115,8 @@ class OptimizationViewModel(QtCore.QObject):
         self.request_add_delivery_points.emit(self.snapped_delivery_points)
 
     def run_optimization(self):
-        """Run the optimization process in a worker thread"""
         try:
-            validate_settings()
             self.request_show_loading.emit()
-
-            self.sa_solution = None
-            self.sa_unassigned = None
-            self.greedy_solution = None
-            self.greedy_unassigned = None
 
             self.optimizer = SimulatedAnnealingOptimizer(
                 self.delivery_drivers,
@@ -108,27 +130,10 @@ class OptimizationViewModel(QtCore.QObject):
 
             self.optimizer.update_visualization.connect(self.rate_limited_visualization_update)
             self.optimizer.finished.connect(
-                lambda sol, unassigned: self.on_sa_finished(sol, unassigned)
+                lambda sol, unassigned: self.optimization_finished.emit(sol, unassigned)
             )
 
-            if OPTIMIZATION_SETTINGS['VALIDATE']:
-                from models.services.optimization.greedy import GreedyOptimizer
-
-                self.greedy_optimizer = GreedyOptimizer(
-                    self.delivery_drivers,
-                    self.snapped_delivery_points,
-                    self.G,
-                    self.warehouse_location
-                )
-
-                self.greedy_optimizer.finished.connect(
-                    lambda sol, unassigned: self.on_greedy_finished(sol, unassigned)
-                )
-
-                self.greedy_optimizer.optimize()
-
             self.optimizer.optimize()
-
 
         except Exception as e:
             print(f"Optimization error: {e}")
@@ -139,7 +144,6 @@ class OptimizationViewModel(QtCore.QObject):
             self.request_show_message.emit("Error", f"Optimization error: {e}", "critical")
 
     def rate_limited_visualization_update(self, solution, unassigned):
-        """Handle visualization updates with rate limiting to prevent UI freezing"""
         current_time = time.time()
 
         if not hasattr(self, 'update_interval'):
@@ -151,7 +155,6 @@ class OptimizationViewModel(QtCore.QObject):
             self.request_update_visualization.emit(solution, unassigned)
 
     def update_visualization(self, solution, unassigned_deliveries=None):
-        """Update the visualization with the given solution using background processing"""
         try:
             if isinstance(solution, tuple):
                 solution, unassigned = solution
@@ -180,7 +183,6 @@ class OptimizationViewModel(QtCore.QObject):
             traceback.print_exc()
 
     def _solutions_equal(self, sol1, sol2):
-        """Compare two solutions to see if they're functionally equivalent"""
         if len(sol1) != len(sol2):
             return False
 
@@ -197,7 +199,6 @@ class OptimizationViewModel(QtCore.QObject):
         return True
 
     def _process_visualization_in_background(self, solution, unassigned_deliveries):
-        """Process route calculations in a background thread"""
         try:
             if unassigned_deliveries is None:
                 unassigned_set = set()
@@ -216,11 +217,12 @@ class OptimizationViewModel(QtCore.QObject):
                 driver_id = assignment.driver_id
                 driver_style = self.route_color_manager.get_route_style(driver_id - 1, total_drivers)
 
+                driver_style = driver_style.copy()
+
                 if selected_driver_id is not None:
                     if driver_id == selected_driver_id:
                         driver_style['opacity'] = 1.0
                     else:
-                        driver_style = driver_style.copy()
                         driver_style['opacity'] = 0.15
 
                 driver_style_map[driver_id] = driver_style
@@ -306,10 +308,6 @@ class OptimizationViewModel(QtCore.QObject):
             traceback.print_exc()
 
     def _calculate_route_points(self, assignment, warehouse_location, unassigned_set):
-        """
-        Calculate route points at the edge level of the road network graph.
-        Each segment in the result represents a single road edge with proper travel time.
-        """
         if not warehouse_location:
             return [], [], []
 
@@ -435,32 +433,55 @@ class OptimizationViewModel(QtCore.QObject):
         return route_points, travel_times, delivery_indices
 
     def run_simulation(self):
-        """Run a simulation of drivers delivering packages using actual travel times"""
         if not self.current_solution:
+            self.request_show_message.emit(
+                "Simulation Error",
+                "No solution available to simulate.",
+                "warning"
+            )
             return
 
         try:
             self.request_show_loading.emit()
 
             simulation_data = []
+            all_detailed_route_points = []
             total_drivers = len(self.delivery_drivers)
+
+            total_expected_time = 0
+
+            unassigned_set = self.unassigned_deliveries if isinstance(self.unassigned_deliveries, set) else set(
+                self.unassigned_deliveries or [])
 
             for assignment in self.current_solution:
                 if not assignment.delivery_indices:
                     continue
 
+                assigned_indices_for_driver = [idx for idx in assignment.delivery_indices if idx not in unassigned_set]
+                if not assigned_indices_for_driver:
+                    print(f"Warning: Driver {assignment.driver_id} has no assigned deliveries in the current view.")
+                    continue
+
+                temp_assignment = assignment.copy(update={'delivery_indices': assigned_indices_for_driver})
+
                 route_points, travel_times, delivery_indices = self._calculate_route_points(
-                    assignment,
+                    temp_assignment,
                     self.warehouse_location,
-                    self.unassigned_deliveries
+                    set()
                 )
 
                 if not route_points or len(route_points) < 2:
                     print(f"Warning: No valid route found for driver {assignment.driver_id}")
                     continue
 
+                all_detailed_route_points.extend(route_points)
+
                 while len(travel_times) < len(route_points) - 1:
                     travel_times.append(1.0)
+
+                route_time = sum(travel_times)
+                if route_time > total_expected_time:
+                    total_expected_time = route_time
 
                 route_style = self.route_color_manager.get_route_style(
                     assignment.driver_id - 1,
@@ -475,14 +496,22 @@ class OptimizationViewModel(QtCore.QObject):
                     "style": route_style
                 })
 
+            if self.messenger:
+                self.messenger.send(MessageType.SIMULATION_STARTED, {
+                    'total_expected_time': total_expected_time,
+                    'drivers': self.delivery_drivers,
+                    'solution': self.current_solution,
+                    'all_detailed_route_points': all_detailed_route_points,
+                    'send_to_map': True
+                })
+
             self.request_hide_loading.emit()
 
             if simulation_data:
                 self.request_start_simulation.emit(simulation_data)
 
                 try:
-                    from config.app_settings import SIMULATION_SPEED
-                    speed = SIMULATION_SPEED
+                    speed = SimulationConfig.SPEED
                 except (ImportError, AttributeError):
                     speed = 25.0
 
@@ -493,7 +522,6 @@ class OptimizationViewModel(QtCore.QObject):
                     "No valid routes to simulate.",
                     "warning"
                 )
-
 
         except Exception as e:
             self.request_hide_loading.emit()
@@ -506,106 +534,41 @@ class OptimizationViewModel(QtCore.QObject):
                 "critical"
             )
 
-    def on_sa_finished(self, solution, unassigned):
-        """Handle SA optimization completion"""
-        self.sa_solution = solution
-        self.sa_unassigned = unassigned
-
-        if not OPTIMIZATION_SETTINGS['VALIDATE'] or self.greedy_solution is not None:
-            self.optimization_finished.emit(solution, unassigned)
-
-    def on_greedy_finished(self, solution, unassigned):
-        """Handle Greedy optimization completion"""
-        self.greedy_solution = solution
-        self.greedy_unassigned = unassigned
-
-        if self.sa_solution is not None:
-            self.optimization_finished.emit(self.sa_solution, self.sa_unassigned)
-
-    def switch_solution_view(self, solution_type):
-        """Switch between SA and Greedy solutions"""
-        if solution_type == "Simulated Annealing":
-            if hasattr(self, 'sa_solution') and self.sa_solution is not None:
-                self.current_view = solution_type
-                unassigned = self.sa_unassigned if isinstance(self.sa_unassigned, (set, list)) else set()
-
-                self.current_solution = self.sa_solution
-                self.unassigned_deliveries = unassigned
-
-                self.request_update_visualization.emit(self.sa_solution, unassigned)
-
-                total_distance, total_time = self._update_statistics(self.sa_solution)
-                self.request_update_stats.emit(
-                    self.last_computation_time,
-                    total_time,
-                    total_distance
-                )
-
-                if self.driver_viewmodel:
-                    driver_stats = self._calculate_driver_statistics(self.sa_solution)
-                    self.driver_viewmodel.update_driver_stats(driver_stats)
-        else:
-            if hasattr(self, 'greedy_solution') and self.greedy_solution is not None:
-                self.current_view = solution_type
-                unassigned = self.greedy_unassigned if isinstance(self.greedy_unassigned, (set, list)) else set()
-
-                self.current_solution = self.greedy_solution
-                self.unassigned_deliveries = unassigned
-
-                self.request_update_visualization.emit(self.greedy_solution, unassigned)
-
-                total_distance, total_time = self._update_statistics(self.greedy_solution)
-                self.request_update_stats.emit(
-                    self.last_computation_time,
-                    total_time,
-                    total_distance
-                )
-
-                if self.driver_viewmodel:
-                    driver_stats = self._calculate_driver_statistics(self.greedy_solution)
-                    self.driver_viewmodel.update_driver_stats(driver_stats)
+    def handle_disruption_visualization(self, data):
+        if 'disruptions' in data and hasattr(self, 'request_load_disruptions'):
+            self.request_load_disruptions.emit(data['disruptions'])
 
     def handle_driver_selected(self, data):
-        """Handle driver selection from DriverViewModel"""
         driver_id = data.get('driver_id')
 
-        # If we have a solution, update visualization with the selected driver
         if self.current_solution:
-            # Reset visualization cache to force update
             self.last_visualized_solution = None
 
-            # Request visualization update
             self.request_update_visualization.emit(
                 deepcopy(self.current_solution),
                 self.unassigned_deliveries
             )
 
     def handle_warehouse_location(self, data):
-        """Handle warehouse location updates"""
         location = data.get('location')
         if location:
             self.set_warehouse_location(location)
 
     def handle_graph_loaded(self, data):
-        """Handle graph loading events"""
         graph = data.get('graph')
         if graph:
             self.set_graph(graph)
 
     def handle_delivery_points_updated(self, data):
-        """Handle delivery points updates"""
         points = data.get('points')
         if points:
             self.set_delivery_points(points)
 
     def handle_drivers_updated(self, data):
-        """Handle driver updates"""
-        # Store a reference to drivers
         if isinstance(data, list):
             self.set_delivery_drivers(data)
 
     def on_optimization_finished(self, final_solution, unassigned):
-        """Handle optimization completion"""
         try:
             self.request_hide_loading.emit()
             self.request_enable_ui.emit(True)
@@ -620,11 +583,6 @@ class OptimizationViewModel(QtCore.QObject):
             self.current_solution = final_solution
             self.unassigned_deliveries = unassigned
 
-            solution_types_available = (OPTIMIZATION_SETTINGS['VALIDATE'] and
-                                        hasattr(self, 'sa_solution') and
-                                        hasattr(self, 'greedy_solution'))
-
-            self.solution_switch_available.emit(solution_types_available)
             self.enable_simulation_button.emit(True)
 
             driver_stats = self._calculate_driver_statistics(final_solution)
@@ -663,12 +621,6 @@ class OptimizationViewModel(QtCore.QObject):
             )
 
     def _calculate_driver_statistics(self, solution):
-        """
-        Calculate detailed statistics for each driver based on the solution.
-
-        Returns:
-            dict: Dictionary mapping driver_id to their statistics
-        """
         driver_stats = {}
 
         for assignment in solution:
@@ -752,7 +704,6 @@ class OptimizationViewModel(QtCore.QObject):
         return driver_stats
 
     def _update_statistics(self, final_solution):
-        """Update the statistics labels with solution metrics"""
         if not hasattr(self, 'optimizer') or not self.optimizer:
             return 0, 0
 
@@ -786,7 +737,6 @@ class OptimizationViewModel(QtCore.QObject):
         return total_distance, total_time
 
     def _show_optimization_summary(self, final_solution, unassigned):
-        """Show a summary of the optimization results"""
         total_distance, total_time = self._update_statistics(final_solution)
 
         assigned_count = sum(len(assignment.delivery_indices)
@@ -806,39 +756,22 @@ class OptimizationViewModel(QtCore.QObject):
         self.request_show_message.emit("Optimization Results", summary, "information")
 
     def validate_optimization_prerequisites(self):
-        """Validate all prerequisites are in place for optimization"""
         if (self.G is None or
                 not self.snapped_delivery_points or
                 not self.delivery_drivers):
             return False, "Please ensure graph data, delivery points, and drivers are all loaded."
         return True, ""
 
-    def toggle_solution_view(self, is_greedy):
-        """Toggle between Simulated Annealing and Greedy solutions"""
-        if is_greedy:
-            solution_type = "Greedy"
-            button_text = "Greedy"
-        else:
-            solution_type = "Simulated Annealing"
-            button_text = "Simulated Annealing"
-
-        self.switch_solution_view(solution_type)
-        return solution_type, button_text
-
     def set_graph(self, graph):
-        """Set the graph to be used for optimization"""
         self.G = graph
 
     def set_warehouse_location(self, location):
-        """Set the warehouse location"""
         self.warehouse_location = location
 
     def set_delivery_drivers(self, drivers):
-        """Set the delivery drivers"""
         self.delivery_drivers = drivers
 
     def set_delivery_points(self, points):
-        """Set the delivery points"""
         self.snapped_delivery_points = points
 
     @property

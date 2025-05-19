@@ -6,28 +6,21 @@ from copy import deepcopy
 from PyQt5 import QtCore
 from tqdm import tqdm
 
-from config.optimization_settings import OPTIMIZATION_SETTINGS
+from config.config import OptimizationConfig
 from models.entities.delivery import DeliveryAssignment
 from models.services.optimization.base_optimizer import DeliveryOptimizer
 
 
 class SimulatedAnnealingOptimizer(DeliveryOptimizer):
-    """
-    Optimizer that uses simulated annealing algorithm to find optimal delivery assignments
-    and route ordering by allowing worse solutions early in the optimization process.
-    """
     update_visualization = QtCore.pyqtSignal(object, object)
 
     def __init__(self, delivery_drivers, snapped_delivery_points, G, warehouse_coords):
         super().__init__(delivery_drivers, snapped_delivery_points, G, warehouse_coords)
 
     def optimize(self):
-        """
-        Optimizes delivery assignments using simulated annealing with adaptive cooling.
-        Dynamically adjusts cooling rate based on improvement progress, slowing cooling
-        when finding promising solutions and accelerating when exploration stagnates.
-        """
         try:
+            optimization_start_time = time.time()
+
             initial_solution, unassigned = self._generate_initial_solution()
             current_solution = deepcopy(initial_solution)
             current_unassigned = set(unassigned)
@@ -44,11 +37,11 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             print(f"Total Travel Time: {self._format_time_hms(initial_time)} ({initial_time / 60:.2f} minutes)")
             print("-" * 50)
 
-            temperature = OPTIMIZATION_SETTINGS['INITIAL_TEMPERATURE']
-            base_cooling_rate = OPTIMIZATION_SETTINGS['COOLING_RATE']
+            temperature = OptimizationConfig.SETTINGS['INITIAL_TEMPERATURE']
+            base_cooling_rate = OptimizationConfig.SETTINGS['COOLING_RATE']
             cooling_rate = base_cooling_rate
-            min_temperature = OPTIMIZATION_SETTINGS['MIN_TEMPERATURE']
-            iterations_per_temperature = OPTIMIZATION_SETTINGS['ITERATIONS_PER_TEMPERATURE']
+            min_temperature = OptimizationConfig.SETTINGS['MIN_TEMPERATURE']
+            iterations_per_temperature = OptimizationConfig.SETTINGS['ITERATIONS_PER_TEMPERATURE']
 
             min_cooling_rate = 0.90
             max_cooling_rate = 0.98
@@ -106,7 +99,7 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
                     })
 
                     current_time = time.time()
-                    if (OPTIMIZATION_SETTINGS['VISUALIZE_PROCESS'] and
+                    if (OptimizationConfig.SETTINGS['VISUALIZE_PROCESS'] and
                             (current_time - last_update_time > 1.0)):
                         self.update_visualization.emit(best_solution, best_unassigned)
                         last_update_time = current_time
@@ -124,7 +117,7 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
                     no_improvement_count = 0
 
                     if random.random() < 0.2:
-                        temperature = min(temperature * 1.2, OPTIMIZATION_SETTINGS['INITIAL_TEMPERATURE'] / 2)
+                        temperature = min(temperature * 1.2, OptimizationConfig.SETTINGS['INITIAL_TEMPERATURE'] / 2)
 
                 temperature *= cooling_rate
 
@@ -136,10 +129,14 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
 
             self.update_visualization.emit(best_solution, best_unassigned)
 
+            optimization_end_time = time.time()
+            optimization_duration = optimization_end_time - optimization_start_time
+
             final_time = self.calculate_total_time(best_solution)
             time_improvement = (initial_time - final_time) / initial_time * 100 if initial_time > 0 else 0
 
             print("\nFinal Solution Statistics:")
+            print(f"Optimization Process Took: {optimization_duration:.2f} seconds ({self._format_time_hms(optimization_duration)})")
             print(f"Total Travel Time: {self._format_time_hms(final_time)} ({final_time / 60:.2f} minutes)")
             print(f"Solution Cost: {best_cost:.2f}")
             print(f"Time Improvement: {time_improvement:.2f}%")
@@ -147,19 +144,15 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             print("=" * 50)
 
             self.finished.emit(best_solution, best_unassigned)
-            return best_solution, best_unassigned
+            return best_solution, best_unassigned, optimization_duration, time_improvement
 
         except Exception as e:
             import traceback
             traceback.print_exc()
             self.finished.emit(None, None)
-            return None, None
+            return None, None, 0.0, 0.0
 
     def _generate_initial_solution(self):
-        """
-        Generate an initial balanced solution by distributing deliveries to drivers
-        using a round-robin approach with capacity constraints.
-        """
         delivery_indices = list(range(len(self.snapped_delivery_points)))
         delivery_indices.sort(
             key=lambda idx: -(self.snapped_delivery_points[idx][2] / self.snapped_delivery_points[idx][3]))
@@ -176,41 +169,31 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
 
         unassigned = set()
 
-        driver_idx = 0
         for idx in delivery_indices:
             _, _, weight, volume = self.snapped_delivery_points[idx]
 
-            assignment = solution[driver_idx]
-            driver = next((d for d in self.delivery_drivers if d.id == assignment.driver_id), None)
+            driver_utils = []
+            for i, assignment in enumerate(solution):
+                driver = next((d for d in self.delivery_drivers if d.id == assignment.driver_id), None)
 
-            if (assignment.total_weight + weight <= driver.weight_capacity and
-                    assignment.total_volume + volume <= driver.volume_capacity):
+                if (assignment.total_weight + weight <= driver.weight_capacity and
+                        assignment.total_volume + volume <= driver.volume_capacity):
+                    weight_util = assignment.total_weight / driver.weight_capacity
+                    volume_util = assignment.total_volume / driver.volume_capacity
+                    avg_util = (weight_util + volume_util) / 2
 
+                    driver_utils.append((i, avg_util))
+
+            if driver_utils:
+                driver_utils.sort(key=lambda x: x[1])
+                best_driver_idx = driver_utils[0][0]
+
+                assignment = solution[best_driver_idx]
                 assignment.delivery_indices.append(idx)
                 assignment.total_weight += weight
                 assignment.total_volume += volume
             else:
-                found_driver = False
-
-                for j in range(1, len(solution)):
-                    alt_driver_idx = (driver_idx + j) % len(solution)
-                    alt_assignment = solution[alt_driver_idx]
-                    alt_driver = next((d for d in self.delivery_drivers if d.id == alt_assignment.driver_id), None)
-
-                    if (alt_assignment.total_weight + weight <= alt_driver.weight_capacity and
-                            alt_assignment.total_volume + volume <= alt_driver.volume_capacity):
-                        alt_assignment.delivery_indices.append(idx)
-                        alt_assignment.total_weight += weight
-                        alt_assignment.total_volume += volume
-                        found_driver = True
-                        break
-
-                if not found_driver:
-                    unassigned.add(idx)
-
-            driver_idx = (driver_idx + 1) % len(solution)
-
-        self._balance_initial_solution(solution)
+                unassigned.add(idx)
 
         for assignment in solution:
             if len(assignment.delivery_indices) > 1:
@@ -218,48 +201,7 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
 
         return solution, unassigned
 
-    def _balance_initial_solution(self, solution):
-        driver_utils = []
-        for i, assignment in enumerate(solution):
-            driver = next((d for d in self.delivery_drivers if d.id == assignment.driver_id), None)
-            weight_util = assignment.total_weight / driver.weight_capacity
-            volume_util = assignment.total_volume / driver.volume_capacity
-            avg_util = (weight_util + volume_util) / 2
-            driver_utils.append((i, avg_util))
-
-        driver_utils.sort(key=lambda x: -x[1])
-
-        for j in range(5):
-            for high_idx, _ in driver_utils[:len(driver_utils) // 2]:
-                high_assignment = solution[high_idx]
-
-                if not high_assignment.delivery_indices:
-                    continue
-
-                for low_idx, _ in reversed(driver_utils[len(driver_utils) // 2:]):
-                    low_assignment = solution[low_idx]
-
-                    for delivery_idx in list(high_assignment.delivery_indices):
-                        _, _, weight, volume = self.snapped_delivery_points[delivery_idx]
-
-                        low_driver = next((d for d in self.delivery_drivers if d.id == low_assignment.driver_id), None)
-
-                        if (low_assignment.total_weight + weight <= low_driver.weight_capacity and
-                                low_assignment.total_volume + volume <= low_driver.volume_capacity):
-                            high_assignment.delivery_indices.remove(delivery_idx)
-                            high_assignment.total_weight -= weight
-                            high_assignment.total_volume -= volume
-
-                            low_assignment.delivery_indices.append(delivery_idx)
-                            low_assignment.total_weight += weight
-                            low_assignment.total_volume += volume
-
-                            break
-
     def _generate_neighbor_solution(self, current_solution, current_unassigned):
-        """
-        Generate a neighboring solution by applying a random move.
-        """
         neighbor_solution = deepcopy(current_solution)
         neighbor_unassigned = set(current_unassigned)
 
@@ -270,27 +212,21 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
         )[0]
 
         if move_type == "swap" and len(neighbor_solution) >= 2:
-            # Swap deliveries between two drivers
             self._apply_swap_move(neighbor_solution)
 
         elif move_type == "move" and len(neighbor_solution) >= 2:
-            # Move a delivery from one driver to another
             self._apply_move_move(neighbor_solution)
 
         elif move_type == "reorder":
-            # Reorder deliveries for a driver
             self._apply_reorder_move(neighbor_solution)
 
         elif move_type == "assign" and neighbor_unassigned:
-            # Assign an unassigned delivery
             self._apply_assign_move(neighbor_solution, neighbor_unassigned)
 
         elif move_type == "unassign":
-            # Unassign a delivery
             self._apply_unassign_move(neighbor_solution, neighbor_unassigned)
 
         elif move_type == "balance" and len(neighbor_solution) >= 2:
-            # Balance workload between drivers
             self._apply_balance_move(neighbor_solution)
 
         self._recalculate_assignment_totals(neighbor_solution)
@@ -298,10 +234,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
         return neighbor_solution, neighbor_unassigned
 
     def _apply_balance_move(self, solution):
-        """
-        Apply a move specifically designed to balance workload between drivers.
-        Moves deliveries from the most utilized driver to the least utilized.
-        """
         driver_utils = []
         for i, assignment in enumerate(solution):
             if not assignment.delivery_indices:
@@ -322,7 +254,7 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
         high_idx, high_util = driver_utils[0]
         low_idx, low_util = driver_utils[-1]
 
-        if high_util - low_util < 0.1:  # Less than 10% difference
+        if high_util - low_util < 0.1:
             return
 
         high_assignment = solution[high_idx]
@@ -352,9 +284,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
                 break
 
     def _apply_swap_move(self, solution):
-        """
-        Swap deliveries between two random drivers.
-        """
         valid_assignments = [a for a in solution if a.delivery_indices]
         if len(valid_assignments) < 2:
             return
@@ -389,9 +318,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             self._optimize_route_order(assignment2)
 
     def _apply_move_move(self, solution):
-        """
-        Move a delivery from one driver to another.
-        """
         valid_assignments = [a for a in solution if a.delivery_indices]
         if not valid_assignments:
             return
@@ -422,9 +348,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             self._optimize_route_order(to_assignment)
 
     def _apply_reorder_move(self, solution):
-        """
-        Reorder deliveries for a random driver using 2-opt.
-        """
         valid_assignments = [a for a in solution if len(a.delivery_indices) >= 3]
         if not valid_assignments:
             return
@@ -439,9 +362,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
                 assignment.delivery_indices[pos2], assignment.delivery_indices[pos1]
 
     def _apply_assign_move(self, solution, unassigned):
-        """
-        Try to assign an unassigned delivery to a driver.
-        """
         if not unassigned:
             return
 
@@ -470,9 +390,6 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             self._optimize_route_order(assignment)
 
     def _apply_unassign_move(self, solution, unassigned):
-        """
-        Unassign a delivery from a driver.
-        """
         valid_assignments = [a for a in solution if a.delivery_indices]
         if not valid_assignments:
             return

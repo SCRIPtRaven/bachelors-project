@@ -23,6 +23,12 @@ pyqt5-sip = "^12.17.0"
 ortools = "^9.11.4210"
 colormath = "^3.0.0"
 pydantic = "^2.10.6"
+gym = "^0.26.2"
+keras = "^3.9.1"
+tensorflow = "^2.19.0"
+xgboost = "^3.0.0"
+seaborn = "^0.13.2"
+imbalanced-learn = "^0.12.3"
 
 [build-system]
 requires = ["poetry-core"]
