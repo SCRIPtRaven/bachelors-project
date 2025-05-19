@@ -30,7 +30,8 @@ class RouteColorManager:
         base_hue = self.base_hues[hue_index]
 
         sat_index = (index // len(self.base_hues)) % len(self.saturation_levels)
-        bright_index = (index // (len(self.base_hues) * len(self.saturation_levels))) % len(self.brightness_levels)
+        bright_index = (index // (len(self.base_hues) * len(self.saturation_levels))) % len(
+            self.brightness_levels)
 
         pattern_index = index % len(self.patterns)
 
@@ -98,7 +99,8 @@ def calculate_travel_time(route: List[Tuple[float, float]], graph: Optional[nx.G
                 if start_node not in graph or end_node not in graph:
                     return float('inf')
 
-                segment_time = nx.shortest_path_length(graph, source=start_node, target=end_node, weight='travel_time')
+                segment_time = nx.shortest_path_length(graph, source=start_node, target=end_node,
+                                                       weight='travel_time')
                 total_time += segment_time
 
             except (nx.NodeNotFound, nx.NetworkXNoPath):
@@ -121,7 +123,8 @@ def get_distance_along_route(route_points: List[Tuple[float, float]], target_ind
     return calculate_route_length(route_points[:target_index + 1])
 
 
-def find_closest_point_index_on_route(route_points: List[Tuple[float, float]], location: Tuple[float, float]) -> int:
+def find_closest_point_index_on_route(route_points: List[Tuple[float, float]],
+                                      location: Tuple[float, float]) -> int:
     if not route_points:
         return -1
 
@@ -135,7 +138,8 @@ def find_closest_point_index_on_route(route_points: List[Tuple[float, float]], l
     return closest_idx
 
 
-def find_route_enter_disruption_index(route_points: List[Tuple[float, float]], disruption_location: Tuple[float, float],
+def find_route_enter_disruption_index(route_points: List[Tuple[float, float]],
+                                      disruption_location: Tuple[float, float],
                                       disruption_radius: float, start_index: int = 0) -> int:
     if not route_points:
         return -1

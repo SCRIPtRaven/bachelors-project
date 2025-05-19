@@ -1763,6 +1763,21 @@ spelling = ["pyenchant (>=3.2,<4.0)"]
 testutils = ["gitpython (>3)"]
 
 [[package]]
+name = "pylint-runner"
+version = "0.7.0"
+description = "Run pylint recursively on all py files in current and sub-directories"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "pylint_runner-0.7.0-py3-none-any.whl", hash = "sha256:5ae147800ac6a3f279fb046e6ec02f6ac9866854628a8145d2199c39f80865c0"},
+    {file = "pylint_runner-0.7.0.tar.gz", hash = "sha256:939459a20eea44550631ec27cb64912970c6c14693dfccd43120c636cf8273b5"},
+]
+
+[package.dependencies]
+colorama = "*"
+pylint = "*"
+
+[[package]]
 name = "pyogrio"
 version = "0.11.0"
 description = "Vectorized spatial vector file format I/O using GDAL/OGR"
@@ -2596,4 +2611,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "e342f9494eea82386e77d17d4caffd676cfef5fdd5f77ccc43512d001f25d78d"
+content-hash = "c949cc39a09d590654ac2e871f68e3cbdc3fe11f815e25a44fac97e5177e66c4"

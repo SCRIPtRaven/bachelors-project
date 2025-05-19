@@ -409,8 +409,6 @@ function updateSimulation() {
     const simulationTimeIncrement = timeDelta * simulationSpeed;
     simulationTime += simulationTimeIncrement;
 
-    checkPendingDeliveries();
-
     if (window.simInterface) {
       window.simInterface.handleEvent(
         JSON.stringify({
@@ -588,13 +586,6 @@ function triggerDeliveryAnimation(driver, pointIndex) {
 
   const wasRerouted = driver.recentlyRerouted && driver.recentlyRerouted.includes(pointIndex);
 
-  const isRecipientUnavailable = !wasRerouted && checkForRecipientUnavailable(deliveryPoint, currentSimulationTime);
-
-  if (isRecipientUnavailable) {
-    showDeliveryFailure(driver, deliveryPoint);
-    return false;
-  }
-
   driver.visited.push(pointIndex);
 
   if (wasRerouted) {
@@ -626,10 +617,11 @@ function triggerDeliveryAnimation(driver, pointIndex) {
     pulseCircle.setRadius(size);
   }, 50);
 
-  let tempPopup = L.popup({ closeButton: false, autoClose: false, closeOnClick: false })
+  let tempPopup = L.popup({ closeButton: false, autoClose: false, closeOnClick: false, autoPan: false })
     .setLatLng(deliveryPoint)
-    .setContent(`<div style="text-align:center"><strong>Driver ${driver.id}</strong><br>Package delivered! 📦</div>`)
-    .openOn(map);
+    .setContent(`<div style="text-align:center"><strong>Driver ${driver.id}</strong><br>Package delivered! 📦</div>`);
+
+  map.addLayer(tempPopup);
 
   setTimeout(() => {
     clearInterval(pulseAnimation);
@@ -650,51 +642,4 @@ function triggerDeliveryAnimation(driver, pointIndex) {
   }, 1500);
 
   return true;
-}
-
-function checkForRecipientUnavailable(point) {
-  if (!disruptionsEnabled || !activeDisruptions || !activeDisruptions.length) return false;
-
-  const pointLatLng = L.latLng(point[0], point[1]);
-
-  for (const disruption of activeDisruptions) {
-    if (
-      disruption.start_time > currentSimulationTime ||
-      disruption.start_time + disruption.duration < currentSimulationTime ||
-      disruption.type !== "recipient_unavailable"
-    )
-      continue;
-
-    const disruptionPos = L.latLng(disruption.location.lat, disruption.location.lng);
-
-    const distance = pointLatLng.distanceTo(disruptionPos);
-    if (distance < 5) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function showDeliveryFailure(driver, deliveryPoint) {
-  const failMarker = L.divIcon({
-    html: '<div style="color:red; font-size:20px; font-weight:bold;">✕</div>',
-    className: "delivery-fail-marker",
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-  });
-
-  const marker = L.marker(deliveryPoint, { icon: failMarker }).addTo(layers.drivers);
-
-  let popup = L.popup()
-    .setLatLng(deliveryPoint)
-    .setContent(
-      `<div style="text-align:center"><strong>Driver ${driver.id}</strong><br>❌ Recipient not available! ❌<br>Delivery failed.</div>`
-    )
-    .openOn(map);
-
-  setTimeout(() => {
-    map.closePopup(popup);
-    layers.drivers.removeLayer(marker);
-  }, 2000);
 }

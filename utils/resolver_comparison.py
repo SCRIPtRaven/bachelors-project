@@ -12,22 +12,24 @@ import numpy as np
 import pandas as pd
 from sklearn.inspection import permutation_importance
 
+from models.services import graph_service
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from models.entities.disruption import Disruption, DisruptionType
 from models.resolvers.rule_based_resolver import RuleBasedResolver
 from models.resolvers.ml_classifier_resolver import MLClassifierResolver
 from models.resolvers.actions import (
-    DisruptionAction, RerouteBasicAction, RecipientUnavailableAction,
+    DisruptionAction, RerouteBasicAction,
     NoAction, RerouteTightAvoidanceAction, RerouteWideAvoidanceAction,
     ActionType
 )
 from models.resolvers.state import DeliverySystemState
 from utils.geo_utils import calculate_haversine_distance
-from utils.route_utils import calculate_route_length, calculate_travel_time, find_route_enter_disruption_index
+from utils.route_utils import calculate_route_length, calculate_travel_time, \
+    find_route_enter_disruption_index
 from utils.ml_data_generator import MLDataGenerator
 from config.config import Config
-from models.services import graph
 
 COMPARISON_TARGET_ACTION_TYPES = [
     ActionType.NO_ACTION.display_name,
@@ -63,7 +65,8 @@ def _safe_json_loads(json_string, default=None):
 class ResolverComparison:
     RESULTS_DIR = os.path.join('models', 'resolvers', 'comparison_results')
 
-    def __init__(self, graph_obj, warehouse_location, delivery_points, num_scenarios=100, random_seed=42,
+    def __init__(self, graph_obj, warehouse_location, delivery_points, num_scenarios=100,
+                 random_seed=42,
                  model_type=None, input_csv_path: Optional[str] = None):
         self.G = graph_obj
         self.warehouse_location = warehouse_location
@@ -78,7 +81,8 @@ class ResolverComparison:
         os.makedirs(self.RESULTS_DIR, exist_ok=True)
 
         self.rule_based_resolver = RuleBasedResolver(self.G, warehouse_location)
-        self.ml_resolver = MLClassifierResolver(self.G, warehouse_location, model_type=self.model_type)
+        self.ml_resolver = MLClassifierResolver(self.G, warehouse_location,
+                                                model_type=self.model_type)
 
         self.ml_model_loaded = self.ml_resolver.has_classifier()
         if not self.ml_model_loaded:
@@ -181,7 +185,8 @@ class ResolverComparison:
             type_df = all_scenarios_df[all_scenarios_df['best_action'] == action_type].copy()
 
             if len(type_df) == 0:
-                print(f"Warning: No scenarios found for action type '{action_type}' in the input CSV.")
+                print(
+                    f"Warning: No scenarios found for action type '{action_type}' in the input CSV.")
                 continue
 
             if len(type_df) >= target_count:
@@ -239,7 +244,8 @@ class ResolverComparison:
         ]
 
         if not all(col in row.index for col in required_cols):
-            print(f"Error: Missing required columns in CSV row for reconstruction. Required: {required_cols}")
+            print(
+                f"Error: Missing required columns in CSV row for reconstruction. Required: {required_cols}")
             return None, None, None
 
         try:
@@ -264,7 +270,8 @@ class ResolverComparison:
             warehouse_loc = _safe_json_loads(row['warehouse_location_original_json'])
             all_deliveries = _safe_json_loads(row['all_delivery_points_original_json'])
             initial_route_points = _safe_json_loads(row['initial_driver_route_points_json'])
-            original_initial_pos = (row['initial_driver_position_lat'], row['initial_driver_position_lon'])
+            original_initial_pos = (row['initial_driver_position_lat'],
+                                    row['initial_driver_position_lon'])
 
             if warehouse_loc is None or all_deliveries is None or initial_route_points is None or \
                     pd.isna(original_initial_pos[0]) or pd.isna(original_initial_pos[1]):
@@ -290,12 +297,14 @@ class ResolverComparison:
                             f"Warning: Calculated driver position index {driver_pos_index} is out of bounds for route length {len(initial_route_points)}. Using original position.")
                         initial_pos = original_initial_pos
                 elif enter_index == 0:
-                    print(f"Warning: Route starts inside disruption (entry_index=0). Using original position.")
+                    print(
+                        f"Warning: Route starts inside disruption (entry_index=0). Using original position.")
                     initial_pos = original_initial_pos
                 else:
                     initial_pos = original_initial_pos
             else:
-                print(f"Warning: Initial route points list is too short or missing. Using original position.")
+                print(
+                    f"Warning: Initial route points list is too short or missing. Using original position.")
                 initial_pos = original_initial_pos
             target_driver_assignments = {str(target_driver_id): []}
 
@@ -310,12 +319,14 @@ class ResolverComparison:
 
             state.driver_assignments = target_driver_assignments
             state.driver_positions = {target_driver_id: initial_pos}
-            state.driver_routes = {target_driver_id: {'points': initial_route_points, 'nodes': [], 'progress': 0.0}}
+            state.driver_routes = {
+                target_driver_id: {'points': initial_route_points, 'nodes': [], 'progress': 0.0}}
 
             return disruption, state, target_driver_id
 
         except Exception as e:
-            print(f"Error during scenario reconstruction from row {row.get('disruption_id', '?')}: {e}")
+            print(
+                f"Error during scenario reconstruction from row {row.get('disruption_id', '?')}: {e}")
             import traceback
             traceback.print_exc()
             return None, None, None
@@ -336,18 +347,23 @@ class ResolverComparison:
             rule_based_time = time.time() - rule_based_start
 
             ml_start = time.time()
-            ml_actions = self.ml_resolver.resolve_disruptions(state, [disruption], force_process_driver_id=driver_id)
+            ml_actions = self.ml_resolver.resolve_disruptions(state, [disruption],
+                                                              force_process_driver_id=driver_id)
             ml_time = time.time() - ml_start
 
             rule_based_action = next(
-                (a for a in rule_based_actions if hasattr(a, 'driver_id') and a.driver_id == driver_id), None)
-            ml_action = next((a for a in ml_actions if hasattr(a, 'driver_id') and a.driver_id == driver_id), None)
+                (a for a in rule_based_actions if
+                 hasattr(a, 'driver_id') and a.driver_id == driver_id), None)
+            ml_action = next(
+                (a for a in ml_actions if hasattr(a, 'driver_id') and a.driver_id == driver_id),
+                None)
 
             rule_based_type = self._get_action_type(rule_based_action)
             ml_type = self._get_action_type(ml_action)
 
             ml_confidence = None
-            if self.ml_resolver.classifier is not None and hasattr(self.ml_resolver.classifier, 'predict_proba'):
+            if self.ml_resolver.classifier is not None and hasattr(self.ml_resolver.classifier,
+                                                                   'predict_proba'):
                 try:
                     if isinstance(features, pd.DataFrame):
                         if len(features) == 1:
@@ -381,9 +397,11 @@ class ResolverComparison:
             original_length = calculate_route_length(original_route)
             original_time = calculate_travel_time(original_route, self.G)
 
-            rule_based_metrics = self._evaluate_action(rule_based_action, original_route, original_length,
+            rule_based_metrics = self._evaluate_action(rule_based_action, original_route,
+                                                       original_length,
                                                        original_time, disruption)
-            ml_metrics = self._evaluate_action(ml_action, original_route, original_length, original_time, disruption)
+            ml_metrics = self._evaluate_action(ml_action, original_route, original_length,
+                                               original_time, disruption)
 
             time_improvement = 0
             length_improvement = 0
@@ -403,7 +421,8 @@ class ResolverComparison:
                     elif rule_based_type != "no_action" and ml_type == "no_action":
                         length_improvement = 100.0
                     else:
-                        raw_improvement = (length_diff_meters / rule_based_metrics["route_length"]) * 100
+                        raw_improvement = (length_diff_meters / rule_based_metrics[
+                            "route_length"]) * 100
 
                         length_improvement = max(-100.0, min(100.0, raw_improvement))
 
@@ -423,8 +442,10 @@ class ResolverComparison:
                 "original_route_length": original_length,
                 "original_travel_time": original_time,
 
-                "rule_based_route_length": rule_based_metrics.get("route_length") if rule_based_metrics else None,
-                "rule_based_travel_time": rule_based_metrics.get("travel_time") if rule_based_metrics else None,
+                "rule_based_route_length": rule_based_metrics.get(
+                    "route_length") if rule_based_metrics else None,
+                "rule_based_travel_time": rule_based_metrics.get(
+                    "travel_time") if rule_based_metrics else None,
 
                 "ml_route_length": ml_metrics.get("route_length") if ml_metrics else None,
                 "ml_travel_time": ml_metrics.get("travel_time") if ml_metrics else None,
@@ -462,7 +483,6 @@ class ResolverComparison:
             return None
 
     def _get_action_type(self, action: DisruptionAction) -> str:
-        """Get the string representation of an action type"""
         if action is None:
             return "no_action"
         elif isinstance(action, NoAction):
@@ -473,8 +493,6 @@ class ResolverComparison:
             return "wide_avoidance"
         elif isinstance(action, RerouteBasicAction):
             return "basic_reroute"
-        elif isinstance(action, RecipientUnavailableAction):
-            return "recipient_unavailable"
         else:
             return f"unknown_{type(action).__name__}"
 
@@ -513,7 +531,8 @@ class ResolverComparison:
                 print(f"Warning: Cannot evaluate action of type {type(action_to_eval)}")
                 return None
 
-            detour_length_factor = new_length / max(0.1, original_length) if original_length > 0 else 0.0
+            detour_length_factor = new_length / max(0.1,
+                                                    original_length) if original_length > 0 else 0.0
 
             return {
                 "route_length": new_length,
@@ -564,7 +583,8 @@ class ResolverComparison:
             }
 
         feature_importance = {}
-        if self.ml_resolver.classifier is not None and hasattr(self.ml_resolver.classifier, 'predict_proba'):
+        if self.ml_resolver.classifier is not None and hasattr(self.ml_resolver.classifier,
+                                                               'predict_proba'):
             try:
                 feature_columns = [col for col in df.columns if col.startswith('feature_')]
                 feature_names = [col.replace('feature_', '') for col in feature_columns]
@@ -615,7 +635,8 @@ class ResolverComparison:
                     action_metrics[action] = {
                         "count": len(action_subset),
                         "avg_length_improvement": action_subset['length_improvement_pct'].mean(),
-                        "median_length_improvement": action_subset['length_improvement_pct'].median(),
+                        "median_length_improvement": action_subset[
+                            'length_improvement_pct'].median(),
                         "avg_time_improvement": action_subset['time_improvement_pct'].mean(),
                         "median_time_improvement": action_subset['time_improvement_pct'].median()
                     }
@@ -708,7 +729,8 @@ class ResolverComparison:
             if feature_importance:
                 f.write("Feature Importance:\n")
                 for feature, importance in feature_importance.items():
-                    f.write(f"  {feature}: {importance['importance']:.4f} ± {importance['std']:.4f}\n")
+                    f.write(
+                        f"  {feature}: {importance['importance']:.4f} ± {importance['std']:.4f}\n")
                 f.write("\n")
 
             f.write("Rule-based resolver action distribution:\n")
@@ -766,9 +788,11 @@ class ResolverComparison:
                     incident_edges_data = []
                     for u, v, k, data in list(self.G.edges(node_to_remove, data=True, keys=True)):
                         incident_edges_data.append((u, v, k, data))
-                    for u, v, k, data in list(self.G.in_edges(node_to_remove, data=True, keys=True)):
+                    for u, v, k, data in list(
+                            self.G.in_edges(node_to_remove, data=True, keys=True)):
                         is_duplicate = any(
-                            item[0] == u and item[1] == v and item[2] == k for item in incident_edges_data)
+                            item[0] == u and item[1] == v and item[2] == k for item in
+                            incident_edges_data)
                         if not is_duplicate:
                             incident_edges_data.append((u, v, k, data))
 
@@ -790,32 +814,37 @@ class ResolverComparison:
                                 'x' in node_v_data and 'y' in node_v_data): continue
                         mid_lon = (self.G.nodes[u]['x'] + node_v_data['x']) / 2
                         mid_lat = (self.G.nodes[u]['y'] + node_v_data['y']) / 2
-                        if calculate_haversine_distance((mid_lat, mid_lon), disruption.location) <= disruption_radius:
+                        if calculate_haversine_distance((mid_lat, mid_lon),
+                                                        disruption.location) <= disruption_radius:
                             edges_to_check.add((u, v, k))
 
             for u, v, k in edges_to_check:
                 if not self.G.has_edge(u, v, k): continue
                 try:
                     original_time = self.G[u][v][k]['travel_time']
-                    if not isinstance(original_time, (int, float)): original_time = float(original_time)
+                    if not isinstance(original_time, (int, float)): original_time = float(
+                        original_time)
 
                     original_elements['modified_edge_travel_times'].append((u, v, k, original_time))
                     self.G[u][v][k]['travel_time'] = original_time * weight_multiplier
                     affected_edges_count += 1
                 except (TypeError, ValueError, KeyError) as e:
-                    print(f"Warning (Eval): Could not process travel_time for edge ({u}, {v}, {k}): {e}")
+                    print(
+                        f"Warning (Eval): Could not process travel_time for edge ({u}, {v}, {k}): {e}")
 
         return original_elements
 
     def _revert_graph_changes(self, original_elements: Dict[str, Any]):
-        for node, node_data, incident_edges_data in reversed(original_elements.get('removed_nodes_with_edges', [])):
+        for node, node_data, incident_edges_data in reversed(
+                original_elements.get('removed_nodes_with_edges', [])):
             self.G.add_node(node, **node_data)
             edges_to_add_formatted = []
             for u, v, k, data in incident_edges_data:
                 edges_to_add_formatted.append((u, v, k, data))
             self.G.add_edges_from(edges_to_add_formatted)
 
-        for u, v, k, original_travel_time in original_elements.get('modified_edge_travel_times', []):
+        for u, v, k, original_travel_time in original_elements.get('modified_edge_travel_times',
+                                                                   []):
             if self.G.has_edge(u, v, k):
                 self.G[u][v][k]['travel_time'] = original_travel_time
             else:
@@ -840,8 +869,8 @@ if __name__ == "__main__":
     print("Loading graph for comparison...")
     try:
         graph_path = config_instance.get_osm_file_path()
-        loaded_graph = graph.load_graph(graph_path)
-        main_graph_component = graph.get_largest_connected_component(loaded_graph)
+        loaded_graph = graph_service.load_graph(graph_path)
+        main_graph_component = graph_service.get_largest_connected_component(loaded_graph)
         print("Graph loaded successfully.")
     except Exception as e:
         print(f"Error loading graph: {e}. Exiting.")

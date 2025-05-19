@@ -74,9 +74,6 @@ function getDisruptionIcon(type) {
     case "traffic_jam":
       iconHtml = '<i class="fas fa-traffic-light" style="color: #FF5733;"></i>';
       break;
-    case "recipient_unavailable":
-      iconHtml = '<i class="fas fa-user-times" style="color: #C70039;"></i>';
-      break;
     case "road_closure":
       iconHtml = '<i class="fas fa-road" style="color: #900C3F;"></i>';
       break;
@@ -96,8 +93,6 @@ function getDisruptionColor(type) {
   switch (type) {
     case "traffic_jam":
       return "#FF5733";
-    case "recipient_unavailable":
-      return "#C70039";
     case "road_closure":
       return "#900C3F";
     default:

@@ -55,10 +55,6 @@ function executeDriverActions(driver, actions) {
                 handleRerouteAction(map, driver, action);
                 break;
 
-            case 'RECIPIENT_UNAVAILABLE':
-                handleRecipientUnavailableAction(driver, action);
-                break;
-
             default:
                 console.warn(`JS: Unknown action type: ${action.action_type}`);
         }
@@ -227,46 +223,6 @@ function handleRouteUpdate(driver, newRoutePoints, rerouted_segment_start, rerou
     return true;
 }
 
-function handleRecipientUnavailableAction(driver, action) {
-    const deliveryIndex = action.delivery_index;
-
-    showActionFeedback(driver, 'Recipient Unavailable - Will Try Later', 'orange');
-
-    if (!driver.pendingDeliveries) driver.pendingDeliveries = [];
-    driver.pendingDeliveries.push({
-        index: deliveryIndex,
-        disruption_id: action.disruption_id,
-        end_time: currentSimulationTime + action.duration
-    });
-
-    if (deliveryIndex < driver.path.length) {
-        const deliveryPoint = driver.path[deliveryIndex];
-
-        const pendingMarker = L.circleMarker(deliveryPoint, {
-            radius: 8,
-            color: 'orange',
-            fillColor: 'white',
-            fillOpacity: 0.8,
-            weight: 3,
-            dashArray: '3, 3'
-        }).addTo(layers.drivers);
-
-        pendingMarker.bindPopup(
-            `<div style="text-align:center">
-                <strong>Driver ${driver.id}</strong><br>
-                Recipient unavailable - will try again at 
-                ${formatTimeHMS(currentSimulationTime + action.duration)}
-            </div>`
-        );
-
-        if (!driver.pendingMarkers) driver.pendingMarkers = [];
-        driver.pendingMarkers.push({
-            marker: pendingMarker,
-            delivery_index: deliveryIndex
-        });
-    }
-}
-
 function notifyDisruptionResolved(disruption) {
     if (!window.simInterface) return;
 
@@ -335,43 +291,72 @@ function handleRerouteAction(map, driver, action) {
 
         try {
              if (driver.path.length >= 2) {
-                  const newRouteLine = L.polyline(driver.path, {
-                       color: driverColor,
-                       weight: 4,
-                       opacity: 0.9
-                  }).addTo(layers.routes);
-                  driver.routeLines.push(newRouteLine);
+                 // Check if we have valid rerouted segment information
+                 if (reroutedSegmentStart !== undefined && reroutedSegmentEnd !== undefined &&
+                     reroutedSegmentStart >= 0 && reroutedSegmentEnd >= reroutedSegmentStart &&
+                     reroutedSegmentEnd < driver.path.length) {
+
+                     // Draw the route in segments: before reroute, reroute, after reroute
+
+                     // Draw the segment before the reroute with driver color
+                     if (reroutedSegmentStart > 0) {
+                         const beforeSegment = driver.path.slice(0, reroutedSegmentStart + 1);
+                         if (beforeSegment.length >= 2) {
+                             const beforeLine = L.polyline(beforeSegment, {
+                                 color: driverColor,
+                                 weight: 4,
+                                 opacity: 0.9
+                             }).addTo(layers.routes);
+                             driver.routeLines.push(beforeLine);
+                         }
+                     }
+
+                     // Draw the rerouted segment with black dashed line
+                     const detourSegmentForDrawing = driver.path.slice(reroutedSegmentStart, reroutedSegmentEnd + 1);
+                     if (detourSegmentForDrawing.length >= 2) {
+                         console.log(`Drawing rerouted segment with ${detourSegmentForDrawing.length} points`);
+                         try {
+                             const reroutedLine = L.polyline(detourSegmentForDrawing, {
+                                 color: '#000000',
+                                 weight: 5,
+                                 opacity: 1.0,
+                                 dashArray: '8, 12'
+                             }).addTo(layers.routes);
+                             reroutedLine.bindPopup(`<div style="text-align:center"><b>Driver ${driver.id}</b><br>Rerouted path</div>`);
+                             driver.reroutedLines.push(reroutedLine);
+                         } catch (e) {
+                             console.error(`JS handleRerouteAction - ERROR drawing detour polyline for driver ${driver.id}:`, e);
+                             console.error(`  Detour segment length was: ${detourSegmentForDrawing.length}`);
+                         }
+                     }
+
+                     // Draw the segment after the reroute with driver color
+                     if (reroutedSegmentEnd < driver.path.length - 1) {
+                         const afterSegment = driver.path.slice(reroutedSegmentEnd, driver.path.length);
+                         if (afterSegment.length >= 2) {
+                             const afterLine = L.polyline(afterSegment, {
+                                 color: driverColor,
+                                 weight: 4,
+                                 opacity: 0.9
+                             }).addTo(layers.routes);
+                             driver.routeLines.push(afterLine);
+                         }
+                     }
+                 } else {
+                     // If no valid rerouted segment, draw the entire route with driver color
+                     const newRouteLine = L.polyline(driver.path, {
+                         color: driverColor,
+                         weight: 4,
+                         opacity: 0.9
+                     }).addTo(layers.routes);
+                     driver.routeLines.push(newRouteLine);
+                 }
              } else {
-                  console.error(`JS handleRerouteAction - ERROR: Path length is ${driver.path.length} before drawing main polyline for driver ${driver.id}.`);
+                 console.error(`JS handleRerouteAction - ERROR: Path length is ${driver.path.length} before drawing main polyline for driver ${driver.id}.`);
              }
         } catch (e) {
-             console.error(`JS handleRerouteAction - ERROR drawing main polyline for driver ${driver.id}:`, e);
+             console.error(`JS handleRerouteAction - ERROR drawing route for driver ${driver.id}:`, e);
              console.error(`  Path length was: ${driver.path ? driver.path.length : 'N/A'}`);
-        }
-
-        if (reroutedSegmentStart !== undefined && reroutedSegmentEnd !== undefined &&
-            reroutedSegmentStart >= 0 && reroutedSegmentEnd >= reroutedSegmentStart &&
-            reroutedSegmentEnd < driver.path.length) {
-
-            const detourSegmentForDrawing = driver.path.slice(reroutedSegmentStart, reroutedSegmentEnd + 1);
-            if (detourSegmentForDrawing.length >= 2) {
-                 console.log(`Drawing rerouted segment with ${detourSegmentForDrawing.length} points`);
-                 try {
-                      const reroutedLine = L.polyline(detourSegmentForDrawing, {
-                           color: '#000000',
-                           weight: 5,
-                           opacity: 1.0,
-                           dashArray: '8, 12'
-                      }).addTo(layers.routes);
-                      reroutedLine.bindPopup(`<div style="text-align:center"><b>Driver ${driver.id}</b><br>Rerouted path</div>`);
-                      driver.reroutedLines.push(reroutedLine);
-                 } catch (e) {
-                      console.error(`JS handleRerouteAction - ERROR drawing detour polyline for driver ${driver.id}:`, e);
-                      console.error(`  Detour segment length was: ${detourSegmentForDrawing.length}`);
-                 }
-            } else {
-                 console.warn(`JS handleRerouteAction - Skipping detour drawing for driver ${driver.id}, segment length is ${detourSegmentForDrawing.length}.`);
-            }
         }
 
         if (driver.deliveryIndices) {
@@ -422,74 +407,13 @@ function showActionFeedback(driver, message, color) {
         closeButton: false
     })
         .setLatLng(position)
-        .setContent(`<div style="text-align:center; color:${color}"><strong>Driver ${driver.id}</strong><br>${message}</div>`)
-        .openOn(map);
+        .setContent(`<div style="text-align:center; color:${color}"><strong>Driver ${driver.id}</strong><br>${message}</div>`);
+
+    map.addLayer(popup);
 
     setTimeout(() => {
         map.closePopup(popup);
     }, 3000);
-}
-
-function checkPendingDeliveries() {
-    if (!simulationRunning || currentSimulationPaused) return;
-
-    simulationDrivers.forEach(driver => {
-        if (!driver.pendingDeliveries) return;
-
-        const now = currentSimulationTime;
-        for (let i = driver.pendingDeliveries.length - 1; i >= 0; i--) {
-            const delivery = driver.pendingDeliveries[i];
-            if (delivery.end_time <= now) {
-                console.log(`Delivery ${delivery.index} for driver ${driver.id} is now available (time: ${now}, end_time: ${delivery.end_time})`);
-
-                driver.pendingDeliveries.splice(i, 1);
-                handleRecipientAvailable(driver, delivery.index, delivery.disruption_id);
-            }
-        }
-    });
-}
-
-function handleRecipientAvailable(driver, deliveryIndex, disruptionId) {
-    console.log(`Recipient for delivery ${deliveryIndex} is now available for driver ${driver.id}`);
-
-    if (driver.pendingMarkers) {
-        for (let i = 0; i < driver.pendingMarkers.length; i++) {
-            if (driver.pendingMarkers[i].delivery_index === deliveryIndex) {
-                if (driver.pendingMarkers[i].marker) {
-                    layers.drivers.removeLayer(driver.pendingMarkers[i].marker);
-                }
-                driver.pendingMarkers.splice(i, 1);
-                break;
-            }
-        }
-    }
-
-    if (driver.pendingDeliveries) {
-        driver.pendingDeliveries = driver.pendingDeliveries.filter(
-            pd => pd.index !== deliveryIndex
-        );
-    }
-
-    if (driver.skipped) {
-        driver.skipped = driver.skipped.filter(idx => idx !== deliveryIndex);
-    }
-
-    if (driver.visited) {
-        driver.visited = driver.visited.filter(idx => idx !== deliveryIndex);
-    }
-
-    showActionFeedback(driver, 'Recipient now available! Rerouting...', '#4CAF50');
-
-    if (window.simInterface) {
-        window.simInterface.handleEvent(JSON.stringify({
-            type: 'recipient_available',
-            data: {
-                driver_id: driver.id,
-                delivery_index: deliveryIndex,
-                disruption_id: disruptionId
-            }
-        }));
-    }
 }
 
 function notifyDisruptionActivated(disruption) {

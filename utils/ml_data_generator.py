@@ -40,18 +40,21 @@ TARGET_ACTION_TYPES = [
 INTERMEDIATE_SAVE_INTERVAL = 500
 
 
-def _generate_one_sample_worker(args: Tuple[int, Any, Tuple, List, RuleBasedResolver, Optional[str], bool]) -> Tuple[
+def _generate_one_sample_worker(
+        args: Tuple[int, Any, Tuple, List, RuleBasedResolver, Optional[str], bool]) -> Tuple[
     str, Optional[str], Optional[Dict]]:
     seed, graph, warehouse_location, delivery_points, resolver, generation_hint, save_full_scenario_data = args
 
     random.seed(seed)
     np.random.seed(seed)
 
-    dummy_generator = MLDataGenerator(graph, warehouse_location, delivery_points, num_samples=1, random_seed=seed)
+    dummy_generator = MLDataGenerator(graph, warehouse_location, delivery_points, num_samples=1,
+                                      random_seed=seed)
     dummy_generator.resolver = resolver
 
     try:
-        disruption, state, driver_id = dummy_generator._generate_random_scenario_on_route(hint=generation_hint)
+        disruption, state, driver_id = dummy_generator._generate_random_scenario_on_route(
+            hint=generation_hint)
         if disruption is None or state is None or driver_id is None:
             return 'fail_scenario', None, None
 
@@ -69,11 +72,15 @@ def _generate_one_sample_worker(args: Tuple[int, Any, Tuple, List, RuleBasedReso
             "disruption_type_road_closure": features_dict.get('disruption_type_road_closure', 0.0),
             "disruption_type_traffic_jam": features_dict.get('disruption_type_traffic_jam', 0.0),
             "disruption_severity": features_dict.get('severity', 0.0),
-            "distance_to_disruption_center": features_dict.get('distance_to_disruption_center', 0.0),
+            "distance_to_disruption_center": features_dict.get('distance_to_disruption_center',
+                                                               0.0),
             "remaining_deliveries": features_dict.get('remaining_deliveries', 0.0),
-            "distance_along_route_to_disruption": features_dict.get('distance_along_route_to_disruption', 0.0),
-            "distance_to_next_delivery_along_route": features_dict.get('distance_to_next_delivery_along_route', 0.0),
-            "next_delivery_before_disruption": features_dict.get('next_delivery_before_disruption', 0.0),
+            "distance_along_route_to_disruption": features_dict.get(
+                'distance_along_route_to_disruption', 0.0),
+            "distance_to_next_delivery_along_route": features_dict.get(
+                'distance_to_next_delivery_along_route', 0.0),
+            "next_delivery_before_disruption": features_dict.get('next_delivery_before_disruption',
+                                                                 0.0),
             "alternative_route_density": features_dict.get('alternative_route_density', 0.0),
             "urban_density": features_dict.get('urban_density', 0.0),
             "best_action": best_action,
@@ -96,8 +103,9 @@ def _generate_one_sample_worker(args: Tuple[int, Any, Tuple, List, RuleBasedReso
                 "initial_driver_position_lon": state.driver_positions[driver_id][
                     1] if driver_id in state.driver_positions else None,
                 "initial_driver_route_points_json": json.dumps(
-                    state.driver_routes[driver_id]['points']) if driver_id in state.driver_routes and 'points' in
-                                                                 state.driver_routes[driver_id] else None,
+                    state.driver_routes[driver_id][
+                        'points']) if driver_id in state.driver_routes and 'points' in
+                                      state.driver_routes[driver_id] else None,
 
                 "all_delivery_points_original_json": json.dumps(delivery_points),
                 "driver_assignments_json": json.dumps(state.driver_assignments) if hasattr(state,
@@ -125,14 +133,17 @@ class MLDataGenerator:
 
         logger.info("Pre-calculating nearest nodes for warehouse and delivery points...")
         try:
-            self.warehouse_node = ox.nearest_nodes(self.G, X=self.warehouse_location[1], Y=self.warehouse_location[0])
+            self.warehouse_node = ox.nearest_nodes(self.G, X=self.warehouse_location[1],
+                                                   Y=self.warehouse_location[0])
             self.delivery_point_nodes = [
                 ox.nearest_nodes(self.G, X=pt[1], Y=pt[0]) for pt in self.delivery_points
             ]
-            self.delivery_idx_to_node_id = {idx: node_id for idx, node_id in enumerate(self.delivery_point_nodes)}
+            self.delivery_idx_to_node_id = {idx: node_id for idx, node_id in
+                                            enumerate(self.delivery_point_nodes)}
             logger.info("Nearest nodes pre-calculation complete.")
         except Exception as e:
-            logger.error(f"Error during nearest_nodes pre-calculation: {e}. This may impact route generation.")
+            logger.error(
+                f"Error during nearest_nodes pre-calculation: {e}. This may impact route generation.")
             self.warehouse_node = None
             self.delivery_point_nodes = []
             self.delivery_idx_to_node_id = {}
@@ -181,8 +192,10 @@ class MLDataGenerator:
                 base_filename_prefix = f"intermediate_{base_filename_prefix}"
 
         output_file = os.path.join(self.OUTPUT_DIR, f"{base_filename_prefix}_{timestamp}.csv")
-        simple_output_file = os.path.join(self.OUTPUT_DIR, f"simple_{base_filename_prefix}_{timestamp}.csv")
-        metadata_file = os.path.join(self.OUTPUT_DIR, f"metadata_{base_filename_prefix}_{timestamp}.json")
+        simple_output_file = os.path.join(self.OUTPUT_DIR,
+                                          f"simple_{base_filename_prefix}_{timestamp}.csv")
+        metadata_file = os.path.join(self.OUTPUT_DIR,
+                                     f"metadata_{base_filename_prefix}_{timestamp}.json")
 
         try:
             logger.info(f"Saving main data to {output_file}")
@@ -206,12 +219,14 @@ class MLDataGenerator:
                 simple_df.to_csv(simple_output_file, index=False)
                 logger.info(f"Simple data saved successfully to {simple_output_file}")
             else:
-                logger.warning("Could not create simple_df due to missing columns. Skipping simple save.")
+                logger.warning(
+                    "Could not create simple_df due to missing columns. Skipping simple save.")
                 X_cols = []
                 y_col = ''
 
             current_stats = self._current_stats if hasattr(self, '_current_stats') else {}
-            current_action_counts = self._current_action_counts if hasattr(self, '_current_action_counts') else {}
+            current_action_counts = self._current_action_counts if hasattr(self,
+                                                                           '_current_action_counts') else {}
 
             metadata = {
                 "filename_timestamp": timestamp,
@@ -269,7 +284,8 @@ class MLDataGenerator:
         try:
             with multiprocessing.Pool(processes=num_workers) as pool:
                 seed_generator = itertools.count(self.random_seed)
-                worker_args_base = (self.G, self.warehouse_location, self.delivery_points, self.resolver)
+                worker_args_base = (self.G, self.warehouse_location, self.delivery_points,
+                                    self.resolver)
 
                 def generate_task_args_with_hints():
                     HINT_APPLICATION_RATE = 4
@@ -279,24 +295,31 @@ class MLDataGenerator:
 
                         wide_needed = self._current_action_counts[
                                           ActionType.REROUTE_WIDE_AVOIDANCE.display_name] < target_samples_per_action
-                        wide_lagging = self._current_action_counts[ActionType.REROUTE_WIDE_AVOIDANCE.display_name] < \
-                                       self._current_action_counts[ActionType.REROUTE_BASIC.display_name] * 0.6
+                        wide_lagging = self._current_action_counts[
+                                           ActionType.REROUTE_WIDE_AVOIDANCE.display_name] < \
+                                       self._current_action_counts[
+                                           ActionType.REROUTE_BASIC.display_name] * 0.6
 
                         tight_needed = self._current_action_counts[
                                            ActionType.REROUTE_TIGHT_AVOIDANCE.display_name] < target_samples_per_action
-                        tight_lagging = self._current_action_counts[ActionType.REROUTE_TIGHT_AVOIDANCE.display_name] < \
-                                        self._current_action_counts[ActionType.REROUTE_BASIC.display_name] * 0.6
+                        tight_lagging = self._current_action_counts[
+                                            ActionType.REROUTE_TIGHT_AVOIDANCE.display_name] < \
+                                        self._current_action_counts[
+                                            ActionType.REROUTE_BASIC.display_name] * 0.6
 
                         current_active_hints = []
                         if wide_needed and wide_lagging:
-                            current_active_hints.append(ActionType.REROUTE_WIDE_AVOIDANCE.display_name)
+                            current_active_hints.append(
+                                ActionType.REROUTE_WIDE_AVOIDANCE.display_name)
                         if tight_needed and tight_lagging:
-                            current_active_hints.append(ActionType.REROUTE_TIGHT_AVOIDANCE.display_name)
+                            current_active_hints.append(
+                                ActionType.REROUTE_TIGHT_AVOIDANCE.display_name)
 
                         if current_active_hints and (i % HINT_APPLICATION_RATE == 0):
                             hint_for_this_task = random.choice(current_active_hints)
 
-                        yield (seed, *worker_args_base, hint_for_this_task, self.save_full_scenario_data)
+                        yield (seed, *worker_args_base, hint_for_this_task,
+                               self.save_full_scenario_data)
 
                 tasks_iterator = generate_task_args_with_hints()
 
@@ -306,8 +329,9 @@ class MLDataGenerator:
                     self._current_stats['iterations'] += 1
 
                     if status == 'success':
-                        if best_action in self._current_action_counts and self._current_action_counts[
-                            best_action] < target_samples_per_action:
+                        if best_action in self._current_action_counts and \
+                                self._current_action_counts[
+                                    best_action] < target_samples_per_action:
                             feature_rows.append(sample_data)
                             self._current_action_counts[best_action] += 1
                             self._current_stats['successful_samples'] += 1
@@ -322,7 +346,8 @@ class MLDataGenerator:
                     elif status == 'fail_exception':
                         self._current_stats['worker_exceptions'] += 1
 
-                    counts_str = ", ".join([f"{k}={v}" for k, v in self._current_action_counts.items()])
+                    counts_str = ", ".join(
+                        [f"{k}={v}" for k, v in self._current_action_counts.items()])
                     pbar.set_description(
                         f"Counts: [{counts_str}] | Target: {target_samples_per_action} | Iter: {self._current_stats['iterations']}")
 
@@ -334,12 +359,14 @@ class MLDataGenerator:
                                                intermediate_file_tag=f"batch_{intermediate_batch_count}")
                         samples_since_last_save = 0
 
-                    if all(count >= target_samples_per_action for count in self._current_action_counts.values()):
+                    if all(count >= target_samples_per_action for count in
+                           self._current_action_counts.values()):
                         logger.info("Target counts reached for all action types.")
                         break
 
                     if self._current_stats['iterations'] >= max_iterations:
-                        logger.warning(f"Maximum iterations ({max_iterations}) reached. Stopping generation.")
+                        logger.warning(
+                            f"Maximum iterations ({max_iterations}) reached. Stopping generation.")
                         break
 
                 logger.info("Exited main generation loop. Terminating worker pool...")
@@ -349,7 +376,8 @@ class MLDataGenerator:
 
         except KeyboardInterrupt:
             logger.warning("KeyboardInterrupt received! Attempting to save partial data...")
-            self._save_data_to_csv(list(feature_rows), is_intermediate=True, intermediate_file_tag="interrupt")
+            self._save_data_to_csv(list(feature_rows), is_intermediate=True,
+                                   intermediate_file_tag="interrupt")
             logger.warning("Partial data saved due to KeyboardInterrupt. Exiting.")
             pbar.close()
             sys.exit(1)
@@ -358,7 +386,8 @@ class MLDataGenerator:
             import traceback
             traceback.print_exc()
             logger.error("Attempting to save any collected data before exiting...")
-            self._save_data_to_csv(list(feature_rows), is_intermediate=True, intermediate_file_tag="error_exit")
+            self._save_data_to_csv(list(feature_rows), is_intermediate=True,
+                                   intermediate_file_tag="error_exit")
             pbar.close()
             sys.exit(1)
 
@@ -371,13 +400,15 @@ class MLDataGenerator:
         logger.info(f"--- Generation Summary ---")
         logger.info(f"Target samples per action: {target_samples_per_action}")
         logger.info(f"Actual counts: {self._current_action_counts}")
-        logger.info(f"Total valid samples generated: {total_generated} / {self._current_stats['successful_samples']}")
+        logger.info(
+            f"Total valid samples generated: {total_generated} / {self._current_stats['successful_samples']}")
         logger.info(f"Total iterations: {self._current_stats['iterations']}")
         logger.info(f"Failed scenarios: {self._current_stats['failed_scenarios']}")
         logger.info(f"Failed features: {self._current_stats['failed_features']}")
         logger.info(f"Failed actions: {self._current_stats['failed_actions']}")
         if self._current_stats['worker_exceptions'] > 0:
-            logger.warning(f"Worker exceptions encountered: {self._current_stats['worker_exceptions']}")
+            logger.warning(
+                f"Worker exceptions encountered: {self._current_stats['worker_exceptions']}")
 
         return "Data generation process finished (see logs for saved files).", "Check output directory."
 
@@ -434,7 +465,8 @@ class MLDataGenerator:
                         break
                 if not valid_route: continue
 
-                route_stops_points = [self.warehouse_location] + [self.delivery_points[idx] for idx in
+                route_stops_points = [self.warehouse_location] + [self.delivery_points[idx] for idx
+                                                                  in
                                                                   driver_delivery_indices]
 
                 detailed_route_points = []
@@ -447,7 +479,8 @@ class MLDataGenerator:
                         break
                     try:
                         path = nx.shortest_path(self.G, start_node, end_node, weight='travel_time')
-                        segment_points = [(self.G.nodes[node]['y'], self.G.nodes[node]['x']) for node in path if
+                        segment_points = [(self.G.nodes[node]['y'], self.G.nodes[node]['x']) for
+                                          node in path if
                                           'y' in self.G.nodes[node] and 'x' in self.G.nodes[node]]
                         if i > 0: segment_points = segment_points[1:]
                         detailed_route_points.extend(segment_points)
@@ -460,8 +493,9 @@ class MLDataGenerator:
                     route_nodes_for_detailed_path = []
                     if detailed_route_points:
                         try:
-                            route_nodes_for_detailed_path = [ox.nearest_nodes(self.G, X=p[1], Y=p[0]) for p in
-                                                             detailed_route_points]
+                            route_nodes_for_detailed_path = [
+                                ox.nearest_nodes(self.G, X=p[1], Y=p[0]) for p in
+                                detailed_route_points]
                         except Exception as e:
                             logger.warning(
                                 f"Could not get nodes for detailed_route_points for driver {driver_id}: {e}. Route nodes will be incomplete.")
@@ -514,8 +548,8 @@ class MLDataGenerator:
             if disruption_type == DisruptionType.ROAD_CLOSURE:
                 severity = max(0.7, severity)
                 radius = random.uniform(50, 250) * disruption_radius_multiplier
-            else:  # Traffic jam
-                radius = random.uniform(100, 600) * disruption_radius_multiplier
+            else:
+                radius = random.uniform(100, 300) * disruption_radius_multiplier
 
             radius = max(30, min(1000, radius))
 
@@ -550,7 +584,8 @@ class MLDataGenerator:
                         other_pos_index = random.randint(0, len(other_route) - 1)
                         state.driver_positions[driver_id] = other_route[other_pos_index]
                         other_total_len = calculate_route_length(other_route)
-                        other_dist_to_pos = calculate_route_length(other_route[:other_pos_index + 1])
+                        other_dist_to_pos = calculate_route_length(
+                            other_route[:other_pos_index + 1])
                         state.driver_routes[driver_id][
                             'progress'] = other_dist_to_pos / other_total_len if other_total_len > 0 else 0.0
                     else:
@@ -565,7 +600,8 @@ class MLDataGenerator:
             traceback.print_exc()
             return None, None, None
 
-    def _extract_features(self, driver_id: int, disruption: Disruption, state: DeliverySystemState) -> Optional[
+    def _extract_features(self, driver_id: int, disruption: Disruption,
+                          state: DeliverySystemState) -> Optional[
         Dict[str, float]]:
         try:
             features = {}
@@ -599,9 +635,11 @@ class MLDataGenerator:
             if current_route_index == -1:
                 current_route_index = 0
 
-            distance_to_disruption_center = calculate_haversine_distance(position, disruption.location)
+            distance_to_disruption_center = calculate_haversine_distance(position,
+                                                                         disruption.location)
             max_distance_norm = 10000
-            features['distance_to_disruption_center'] = min(1.0, distance_to_disruption_center / max_distance_norm)
+            features['distance_to_disruption_center'] = min(1.0,
+                                                            distance_to_disruption_center / max_distance_norm)
 
             remaining_deliveries = len(delivery_indices)
             features['remaining_deliveries'] = min(1.0, remaining_deliveries / 20.0)
@@ -613,11 +651,14 @@ class MLDataGenerator:
 
             distance_along_route = float('inf')
             if enter_disruption_index != -1:
-                dist_start_to_current = calculate_route_length(route_points[:current_route_index + 1])
-                dist_start_to_disruption = calculate_route_length(route_points[:enter_disruption_index + 1])
+                dist_start_to_current = calculate_route_length(
+                    route_points[:current_route_index + 1])
+                dist_start_to_disruption = calculate_route_length(
+                    route_points[:enter_disruption_index + 1])
                 distance_along_route = max(0, dist_start_to_disruption - dist_start_to_current)
 
-            features['distance_along_route_to_disruption'] = min(1.0, distance_along_route / max_distance_norm)
+            features['distance_along_route_to_disruption'] = min(1.0,
+                                                                 distance_along_route / max_distance_norm)
 
             next_delivery_route_index = -1
             next_delivery_point = None
@@ -635,9 +676,12 @@ class MLDataGenerator:
 
             distance_to_next_delivery_along_route = float('inf')
             if next_delivery_route_index != -1:
-                dist_start_to_current = calculate_route_length(route_points[:current_route_index + 1])
-                dist_start_to_next_delivery = calculate_route_length(route_points[:next_delivery_route_index + 1])
-                distance_to_next_delivery_along_route = max(0, dist_start_to_next_delivery - dist_start_to_current)
+                dist_start_to_current = calculate_route_length(
+                    route_points[:current_route_index + 1])
+                dist_start_to_next_delivery = calculate_route_length(
+                    route_points[:next_delivery_route_index + 1])
+                distance_to_next_delivery_along_route = max(0,
+                                                            dist_start_to_next_delivery - dist_start_to_current)
 
             features['distance_to_next_delivery_along_route'] = min(1.0,
                                                                     distance_to_next_delivery_along_route / max_distance_norm)
@@ -652,14 +696,17 @@ class MLDataGenerator:
             features['next_delivery_before_disruption'] = next_delivery_before_disruption
 
             try:
-                disruption_node = ox.nearest_nodes(self.G, X=disruption.location[1], Y=disruption.location[0])
+                disruption_node = ox.nearest_nodes(self.G, X=disruption.location[1],
+                                                   Y=disruption.location[0])
                 spatial_radius_density = disruption_radius * 3
-                disruption_area = nx.ego_graph(self.G, disruption_node, radius=spatial_radius_density,
+                disruption_area = nx.ego_graph(self.G, disruption_node,
+                                               radius=spatial_radius_density,
                                                distance='length')
 
                 if len(disruption_area.nodes) > 1:
                     edge_to_node_ratio = len(disruption_area.edges) / len(disruption_area.nodes)
-                    features['alternative_route_density'] = min(1.0, max(0.0, edge_to_node_ratio / 3.0))
+                    features['alternative_route_density'] = min(1.0,
+                                                                max(0.0, edge_to_node_ratio / 3.0))
                 else:
                     features['alternative_route_density'] = 0.0
             except Exception as e:
@@ -720,9 +767,11 @@ class MLDataGenerator:
                     incident_edges_data = []
                     for u, v, k, data in list(self.G.edges(node_to_remove, data=True, keys=True)):
                         incident_edges_data.append((u, v, k, data))
-                    for u, v, k, data in list(self.G.in_edges(node_to_remove, data=True, keys=True)):
+                    for u, v, k, data in list(
+                            self.G.in_edges(node_to_remove, data=True, keys=True)):
                         is_duplicate = any(
-                            item[0] == u and item[1] == v and item[2] == k for item in incident_edges_data)
+                            item[0] == u and item[1] == v and item[2] == k for item in
+                            incident_edges_data)
                         if not is_duplicate:
                             incident_edges_data.append((u, v, k, data))
 
@@ -748,14 +797,16 @@ class MLDataGenerator:
 
                         mid_lon = (self.G.nodes[u]['x'] + node_v_data['x']) / 2
                         mid_lat = (self.G.nodes[u]['y'] + node_v_data['y']) / 2
-                        if calculate_haversine_distance((mid_lat, mid_lon), disruption.location) <= disruption_radius:
+                        if calculate_haversine_distance((mid_lat, mid_lon),
+                                                        disruption.location) <= disruption_radius:
                             edges_to_check.add((u, v, k))
 
             for u, v, k in edges_to_check:
                 if not self.G.has_edge(u, v, k): continue
                 try:
                     original_time = self.G[u][v][k]['travel_time']
-                    if not isinstance(original_time, (int, float)): original_time = float(original_time)
+                    if not isinstance(original_time, (int, float)): original_time = float(
+                        original_time)
 
                     original_elements['modified_edge_travel_times'].append((u, v, k, original_time))
                     self.G[u][v][k]['travel_time'] = original_time * weight_multiplier
@@ -770,7 +821,8 @@ class MLDataGenerator:
         return original_elements
 
     def _revert_graph_changes(self, original_elements: Dict[str, Any]):
-        for node, node_data, incident_edges_data in reversed(original_elements.get('removed_nodes_with_edges', [])):
+        for node, node_data, incident_edges_data in reversed(
+                original_elements.get('removed_nodes_with_edges', [])):
             self.G.add_node(node, **node_data)
             edges_to_add_formatted = []
             for u, v, k, data in incident_edges_data:
@@ -779,7 +831,8 @@ class MLDataGenerator:
         if original_elements.get('removed_nodes_with_edges'):
             logger.debug(f"Reverted node removals.")
 
-        for u, v, k, original_travel_time in original_elements.get('modified_edge_travel_times', []):
+        for u, v, k, original_travel_time in original_elements.get('modified_edge_travel_times',
+                                                                   []):
             if self.G.has_edge(u, v, k):
                 self.G[u][v][k]['travel_time'] = original_travel_time
             else:
@@ -788,8 +841,10 @@ class MLDataGenerator:
         if original_elements.get('modified_edge_travel_times'):
             logger.debug(f"Reverted edge travel_time modifications.")
 
-    def _evaluate_action_metrics(self, action: DisruptionAction, original_route: List, original_length: float,
-                                 original_time: float, disruption: Disruption) -> Optional[Dict[str, float]]:
+    def _evaluate_action_metrics(self, action: DisruptionAction, original_route: List,
+                                 original_length: float,
+                                 original_time: float, disruption: Disruption) -> Optional[
+        Dict[str, float]]:
         try:
             if hasattr(action, 'new_route'):
                 new_route = action.new_route
@@ -812,7 +867,8 @@ class MLDataGenerator:
             logger.error(f"Error evaluating action metrics: {e}")
             return None
 
-    def _evaluate_all_actions(self, driver_id: int, disruption: Disruption, state: DeliverySystemState) -> Dict[
+    def _evaluate_all_actions(self, driver_id: int, disruption: Disruption,
+                              state: DeliverySystemState) -> Dict[
         str, Dict[str, float]]:
         original_graph_elements = None
         try:
@@ -822,7 +878,8 @@ class MLDataGenerator:
 
             original_length = calculate_route_length(route_points)
             if route_points and len(route_points) >= 2:
-                original_time_on_modified_graph = calculate_travel_time(route_points, self.G, disruption=disruption)
+                original_time_on_modified_graph = calculate_travel_time(route_points, self.G,
+                                                                        disruption=disruption)
             else:
                 original_time_on_modified_graph = float('inf')
 
@@ -844,7 +901,8 @@ class MLDataGenerator:
                 basic_action = self.resolver._create_reroute_action(driver_id, disruption, state)
                 if basic_action:
                     metrics = self._evaluate_action_metrics(
-                        basic_action, route_points, original_length, original_time_on_modified_graph, disruption
+                        basic_action, route_points, original_length,
+                        original_time_on_modified_graph, disruption
                     )
                     if metrics:
                         outcomes[ActionType.REROUTE_BASIC.display_name] = metrics
@@ -861,29 +919,37 @@ class MLDataGenerator:
 
                         if param_action:
                             metrics = self._evaluate_action_metrics(
-                                param_action, route_points, original_length, original_time_on_modified_graph, disruption
+                                param_action, route_points, original_length,
+                                original_time_on_modified_graph, disruption
                             )
                             if metrics:
                                 outcomes[f'parameterized_avoidance_{ratio:.1f}'] = metrics
                     else:
                         if ratio <= 0.8:
-                            action = self.resolver._create_tight_avoidance_action(driver_id, disruption, state)
+                            action = self.resolver._create_tight_avoidance_action(driver_id,
+                                                                                  disruption, state)
                             if action:
                                 metrics = self._evaluate_action_metrics(
-                                    action, route_points, original_length, original_time_on_modified_graph, disruption
+                                    action, route_points, original_length,
+                                    original_time_on_modified_graph, disruption
                                 )
                                 if metrics:
-                                    outcomes[ActionType.REROUTE_TIGHT_AVOIDANCE.display_name] = metrics
+                                    outcomes[
+                                        ActionType.REROUTE_TIGHT_AVOIDANCE.display_name] = metrics
                         elif ratio >= 2.0:
-                            action = self.resolver._create_wide_avoidance_action(driver_id, disruption, state)
+                            action = self.resolver._create_wide_avoidance_action(driver_id,
+                                                                                 disruption, state)
                             if action:
                                 metrics = self._evaluate_action_metrics(
-                                    action, route_points, original_length, original_time_on_modified_graph, disruption
+                                    action, route_points, original_length,
+                                    original_time_on_modified_graph, disruption
                                 )
                                 if metrics:
-                                    outcomes[ActionType.REROUTE_WIDE_AVOIDANCE.display_name] = metrics
+                                    outcomes[
+                                        ActionType.REROUTE_WIDE_AVOIDANCE.display_name] = metrics
                 except Exception as e:
-                    logger.error(f"Error evaluating parameterized avoidance with ratio {ratio}: {e}")
+                    logger.error(
+                        f"Error evaluating parameterized avoidance with ratio {ratio}: {e}")
 
             return outcomes
 
@@ -949,14 +1015,16 @@ class MLDataGenerator:
 if __name__ == "__main__":
     import argparse
     from config.config import Config
-    from models.services.graph import load_graph, get_largest_connected_component
+    from models.services.graph_service import load_graph, get_largest_connected_component
 
     multiprocessing.freeze_support()
 
     parser = argparse.ArgumentParser(description='Generate training data for ML classifier')
-    parser.add_argument('--samples', type=int, default=1000, help='Number of training samples to generate')
+    parser.add_argument('--samples', type=int, default=1000,
+                        help='Number of training samples to generate')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
-    parser.add_argument('--config', type=str, default='config/config.py', help='Path to config file')
+    parser.add_argument('--config', type=str, default='config/config.py',
+                        help='Path to config file')
     args = parser.parse_args()
 
     config = Config()

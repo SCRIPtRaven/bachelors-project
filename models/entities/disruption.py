@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 class DisruptionType(Enum):
     TRAFFIC_JAM = "traffic_jam"
-    RECIPIENT_UNAVAILABLE = "recipient_unavailable"
     ROAD_CLOSURE = "road_closure"
 
 

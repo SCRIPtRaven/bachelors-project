@@ -19,7 +19,6 @@ class OptimizationViewModel(QtCore.QObject):
     request_enable_ui = QtCore.pyqtSignal(bool)
 
     action_stats_updated = QtCore.pyqtSignal(int, int, int, float)
-    action_log_event = QtCore.pyqtSignal(str, str)
 
     request_show_loading = QtCore.pyqtSignal()
     request_hide_loading = QtCore.pyqtSignal()
@@ -69,35 +68,6 @@ class OptimizationViewModel(QtCore.QObject):
             self.messenger.subscribe(MessageType.DELIVERY_POINTS_UPDATED, self.handle_delivery_points_updated)
             self.messenger.subscribe(MessageType.DRIVER_UPDATED, self.handle_drivers_updated)
             self.messenger.subscribe(MessageType.DISRUPTION_VISUALIZATION, self.handle_disruption_visualization)
-
-        if self.disruption_viewmodel:
-            self.disruption_viewmodel.action_log_updated.connect(self.handle_action_log)
-
-    def handle_action_log(self, message, entry_type=None):
-        entry_type = "action"
-        if "reroute" in message.lower():
-            entry_type = "reroute"
-        elif "reassign" in message.lower():
-            entry_type = "reassign"
-        elif "wait" in message.lower():
-            entry_type = "wait"
-        elif "skip" in message.lower():
-            entry_type = "skip"
-        elif "disruption" in message.lower():
-            entry_type = "disruption"
-
-        self.action_log_event.emit(message, entry_type)
-
-        if hasattr(self.disruption_viewmodel, 'simulation_controller'):
-            controller = self.disruption_viewmodel.simulation_controller
-            time_impact = controller.original_estimated_time - controller.current_estimated_time
-
-            self.action_stats_updated.emit(
-                controller.disruption_count,
-                controller.action_count,
-                controller.recalculation_count,
-                time_impact
-            )
 
     def prepare_optimization(self, delivery_drivers, snapped_delivery_points, graph):
         self.delivery_drivers = delivery_drivers
