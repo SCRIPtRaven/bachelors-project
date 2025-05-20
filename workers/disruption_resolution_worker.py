@@ -57,8 +57,7 @@ class DisruptionResolutionWorker(QtCore.QObject):
 
     def _manual_copy_action(self, action):
         from models.resolvers.actions import (
-            RerouteBasicAction, 
-            RecipientUnavailableAction,
+            RerouteBasicAction,
             NoAction,
             RerouteTightAvoidanceAction,
             RerouteWideAvoidanceAction
@@ -77,7 +76,8 @@ class DisruptionResolutionWorker(QtCore.QObject):
         elif isinstance(action, RerouteWideAvoidanceAction):
             return RerouteWideAvoidanceAction(
                 driver_id=action.driver_id,
-                new_route=list(action.new_route) if hasattr(action, 'new_route') and action.new_route else [],
+                new_route=list(action.new_route) if hasattr(action,
+                                                            'new_route') and action.new_route else [],
                 affected_disruption_id=action.affected_disruption_id,
                 rerouted_segment_start=action.rerouted_segment_start,
                 rerouted_segment_end=getattr(action, 'rerouted_segment_end', None),
@@ -87,19 +87,13 @@ class DisruptionResolutionWorker(QtCore.QObject):
         elif isinstance(action, RerouteBasicAction):
             return RerouteBasicAction(
                 driver_id=action.driver_id,
-                new_route=list(action.new_route) if hasattr(action, 'new_route') and action.new_route else [],
+                new_route=list(action.new_route) if hasattr(action,
+                                                            'new_route') and action.new_route else [],
                 affected_disruption_id=action.affected_disruption_id,
                 rerouted_segment_start=action.rerouted_segment_start,
                 rerouted_segment_end=getattr(action, 'rerouted_segment_end', None),
                 next_delivery_index=action.next_delivery_index,
                 delivery_indices=list(action.delivery_indices) if action.delivery_indices else []
-            )
-        elif isinstance(action, RecipientUnavailableAction):
-            return RecipientUnavailableAction(
-                driver_id=action.driver_id,
-                delivery_index=action.delivery_index,
-                disruption_id=action.disruption_id,
-                duration=action.duration
             )
         elif isinstance(action, NoAction):
             return NoAction(

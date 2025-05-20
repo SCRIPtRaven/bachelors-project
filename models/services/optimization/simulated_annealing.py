@@ -34,7 +34,8 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             best_time = initial_time
 
             print("\nInitial Solution Statistics:")
-            print(f"Total Travel Time: {self._format_time_hms(initial_time)} ({initial_time / 60:.2f} minutes)")
+            print(
+                f"Total Travel Time: {self._format_time_hms(initial_time)} ({initial_time / 60:.2f} minutes)")
             print("-" * 50)
 
             temperature = OptimizationConfig.SETTINGS['INITIAL_TEMPERATURE']
@@ -51,7 +52,8 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             no_improvement_count = 0
 
             estimated_iterations = int(
-                math.log(min_temperature / temperature) / math.log(base_cooling_rate)) * iterations_per_temperature
+                math.log(min_temperature / temperature) / math.log(
+                    base_cooling_rate)) * iterations_per_temperature
 
             progress_bar = tqdm(total=estimated_iterations, desc="Optimizing routes")
             last_update_time = time.time()
@@ -104,7 +106,8 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
                         self.update_visualization.emit(best_solution, best_unassigned)
                         last_update_time = current_time
 
-                rel_improvement = (temp_start_cost - best_cost) / temp_start_cost if temp_start_cost > 0 else 0
+                rel_improvement = (
+                                              temp_start_cost - best_cost) / temp_start_cost if temp_start_cost > 0 else 0
 
                 if rel_improvement > improvement_threshold:
                     cooling_rate = min(max_cooling_rate, cooling_rate + 0.01)
@@ -117,11 +120,13 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
                     no_improvement_count = 0
 
                     if random.random() < 0.2:
-                        temperature = min(temperature * 1.2, OptimizationConfig.SETTINGS['INITIAL_TEMPERATURE'] / 2)
+                        temperature = min(temperature * 1.2,
+                                          OptimizationConfig.SETTINGS['INITIAL_TEMPERATURE'] / 2)
 
                 temperature *= cooling_rate
 
-                remaining_temp_levels = math.log(min_temperature / temperature) / math.log(cooling_rate)
+                remaining_temp_levels = math.log(min_temperature / temperature) / math.log(
+                    cooling_rate)
                 remaining_iterations = int(remaining_temp_levels * iterations_per_temperature)
                 progress_bar.total = iteration_count + remaining_iterations
 
@@ -133,11 +138,14 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             optimization_duration = optimization_end_time - optimization_start_time
 
             final_time = self.calculate_total_time(best_solution)
-            time_improvement = (initial_time - final_time) / initial_time * 100 if initial_time > 0 else 0
+            time_improvement = (
+                                           initial_time - final_time) / initial_time * 100 if initial_time > 0 else 0
 
             print("\nFinal Solution Statistics:")
-            print(f"Optimization Process Took: {optimization_duration:.2f} seconds ({self._format_time_hms(optimization_duration)})")
-            print(f"Total Travel Time: {self._format_time_hms(final_time)} ({final_time / 60:.2f} minutes)")
+            print(
+                f"Optimization Process Took: {optimization_duration:.2f} seconds ({self._format_time_hms(optimization_duration)})")
+            print(
+                f"Total Travel Time: {self._format_time_hms(final_time)} ({final_time / 60:.2f} minutes)")
             print(f"Solution Cost: {best_cost:.2f}")
             print(f"Time Improvement: {time_improvement:.2f}%")
             print(f"Final Cooling Rate: {cooling_rate:.4f}")
@@ -155,7 +163,9 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
     def _generate_initial_solution(self):
         delivery_indices = list(range(len(self.snapped_delivery_points)))
         delivery_indices.sort(
-            key=lambda idx: -(self.snapped_delivery_points[idx][2] / self.snapped_delivery_points[idx][3]))
+            key=lambda idx: -(
+                        self.snapped_delivery_points[idx][2] / self.snapped_delivery_points[idx][
+                    3]))
 
         solution = []
         for driver in self.delivery_drivers:
@@ -174,7 +184,8 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
 
             driver_utils = []
             for i, assignment in enumerate(solution):
-                driver = next((d for d in self.delivery_drivers if d.id == assignment.driver_id), None)
+                driver = next((d for d in self.delivery_drivers if d.id == assignment.driver_id),
+                              None)
 
                 if (assignment.total_weight + weight <= driver.weight_capacity and
                         assignment.total_volume + volume <= driver.volume_capacity):
@@ -266,7 +277,8 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
         for delivery_idx in list(high_assignment.delivery_indices):
             _, _, weight, volume = self.snapped_delivery_points[delivery_idx]
 
-            low_driver = next((d for d in self.delivery_drivers if d.id == low_assignment.driver_id), None)
+            low_driver = next(
+                (d for d in self.delivery_drivers if d.id == low_assignment.driver_id), None)
 
             if (low_assignment.total_weight + weight <= low_driver.weight_capacity and
                     low_assignment.total_volume + volume <= low_driver.volume_capacity):
@@ -337,7 +349,8 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
 
         to_assignment = random.choice(to_drivers)
 
-        to_driver = next((d for d in self.delivery_drivers if d.id == to_assignment.driver_id), None)
+        to_driver = next((d for d in self.delivery_drivers if d.id == to_assignment.driver_id),
+                         None)
 
         if (to_assignment.total_weight + weight <= to_driver.weight_capacity and
                 to_assignment.total_volume + volume <= to_driver.volume_capacity):
@@ -378,8 +391,10 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
 
         if capable_assignments:
             capable_assignments.sort(key=lambda a: (
-                    a.total_weight / next(d for d in self.delivery_drivers if d.id == a.driver_id).weight_capacity +
-                    a.total_volume / next(d for d in self.delivery_drivers if d.id == a.driver_id).volume_capacity
+                    a.total_weight / next(
+                d for d in self.delivery_drivers if d.id == a.driver_id).weight_capacity +
+                    a.total_volume / next(
+                d for d in self.delivery_drivers if d.id == a.driver_id).volume_capacity
             ))
 
             assignment = capable_assignments[0]
@@ -449,7 +464,8 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             if delivery_counts:
                 avg_count = sum(delivery_counts) / len(delivery_counts)
                 if avg_count > 0:
-                    count_variance = sum((c - avg_count) ** 2 for c in delivery_counts) / len(delivery_counts)
+                    count_variance = sum((c - avg_count) ** 2 for c in delivery_counts) / len(
+                        delivery_counts)
                     count_std_dev = math.sqrt(count_variance)
                     count_cv = count_std_dev / avg_count if avg_count > 0 else 0
                 else:

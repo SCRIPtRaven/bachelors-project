@@ -32,9 +32,11 @@ class MapWidget(LeafletMapWidget):
             disruption_viewmodel=self.disruption_viewmodel,
         )
 
-        self.delivery_viewmodel.delivery_points_processed.connect(self.handle_delivery_points_processed)
+        self.delivery_viewmodel.delivery_points_processed.connect(
+            self.handle_delivery_points_processed)
         self.delivery_viewmodel.request_show_message.connect(self.show_message)
-        self.delivery_viewmodel.warehouse_location_changed.connect(self.handle_warehouse_location_changed)
+        self.delivery_viewmodel.warehouse_location_changed.connect(
+            self.handle_warehouse_location_changed)
 
         self.driver_viewmodel.driver_list_changed.connect(self.update_driver_list)
         self.driver_viewmodel.driver_stats_updated.connect(self.update_driver_stats_display)
@@ -52,7 +54,8 @@ class MapWidget(LeafletMapWidget):
         self.optimization_viewmodel.request_set_simulation_speed.connect(self.set_simulation_speed)
         self.optimization_viewmodel.request_show_message.connect(self.show_message)
         self.optimization_viewmodel.request_enable_ui.connect(self.setEnabled)
-        self.optimization_viewmodel.visualization_data_ready.connect(self.updateVisualizationFromBackground)
+        self.optimization_viewmodel.visualization_data_ready.connect(
+            self.updateVisualizationFromBackground)
         self.optimization_viewmodel.enable_simulation_button.connect(self.enable_simulation_button)
         self.optimization_viewmodel.request_load_disruptions.connect(self.load_disruptions)
 
@@ -86,7 +89,8 @@ class MapWidget(LeafletMapWidget):
         print(f"MapWidget: Received route update *request* for driver {driver_id}")
         route_string = self.disruption_viewmodel.get_cached_route_update(driver_id)
         if route_string is not None:
-            print(f"MapWidget: Retrieved route string for driver {driver_id} (length {len(route_string)})")
+            print(
+                f"MapWidget: Retrieved route string for driver {driver_id} (length {len(route_string)})")
             self._execute_js_route_update(driver_id, route_string)
         else:
             print(
@@ -142,7 +146,8 @@ class MapWidget(LeafletMapWidget):
             """
 
             if js_code:
-                print(f"MapWidget: Executing JS route update (Full Route) for driver {driver_id}...")
+                print(
+                    f"MapWidget: Executing JS route update (Full Route) for driver {driver_id}...")
                 self.execute_js(js_code)
             else:
                 print(f"MapWidget: No JS code generated for route update driver {driver_id}")
@@ -194,7 +199,8 @@ class MapWidget(LeafletMapWidget):
         if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
             if hasattr(self.disruption_viewmodel,
                        'simulation_controller') and self.disruption_viewmodel.simulation_controller:
-                self.disruption_viewmodel.simulation_controller.completed_deliveries.add(delivery_index)
+                self.disruption_viewmodel.simulation_controller.completed_deliveries.add(
+                    delivery_index)
 
     def handle_js_delivery_failed(self, driver_id, delivery_index):
         if self.messenger:
@@ -206,7 +212,8 @@ class MapWidget(LeafletMapWidget):
         if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
             if hasattr(self.disruption_viewmodel,
                        'simulation_controller') and self.disruption_viewmodel.simulation_controller:
-                self.disruption_viewmodel.simulation_controller.skipped_deliveries.add(delivery_index)
+                self.disruption_viewmodel.simulation_controller.skipped_deliveries.add(
+                    delivery_index)
 
     def handle_js_simulation_time(self, simulation_time):
         if self.messenger:
@@ -217,7 +224,8 @@ class MapWidget(LeafletMapWidget):
         if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
             if hasattr(self.disruption_viewmodel,
                        'simulation_controller') and self.disruption_viewmodel.simulation_controller:
-                self.disruption_viewmodel.simulation_controller.update_simulation_time(simulation_time)
+                self.disruption_viewmodel.simulation_controller.update_simulation_time(
+                    simulation_time)
 
     def update_visualization(self, solution, unassigned_deliveries=None):
         if isinstance(solution, tuple):
@@ -304,10 +312,12 @@ class MapWidget(LeafletMapWidget):
             label.setSelected(d_id == driver_id)
 
     def show_loading(self):
-        self.execute_js("if (typeof showLoadingIndicator === 'function') { showLoadingIndicator(); }")
+        self.execute_js(
+            "if (typeof showLoadingIndicator === 'function') { showLoadingIndicator(); }")
 
     def hide_loading(self):
-        self.execute_js("if (typeof hideLoadingIndicator === 'function') { hideLoadingIndicator(); }")
+        self.execute_js(
+            "if (typeof hideLoadingIndicator === 'function') { hideLoadingIndicator(); }")
 
     def enable_simulation_button(self, enabled):
         main_window = self.get_main_window()
@@ -473,7 +483,8 @@ class MapWidget(LeafletMapWidget):
         if hasattr(self.disruption_viewmodel, 'initialize_simulation_controller'):
             success = self.disruption_viewmodel.initialize_simulation_controller()
             if success and self.disruption_viewmodel.simulation_controller:
-                self.js_interface.set_simulation_controller(self.disruption_viewmodel.simulation_controller)
+                self.js_interface.set_simulation_controller(
+                    self.disruption_viewmodel.simulation_controller)
             else:
                 self.show_message("Error",
                                   "Cannot start simulation: Simulation controller initialization failed.",

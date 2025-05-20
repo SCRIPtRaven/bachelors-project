@@ -17,7 +17,6 @@ class DisruptionViewModel(QtCore.QObject):
     disruption_activated = QtCore.pyqtSignal(object)
     disruption_resolved = QtCore.pyqtSignal(int)
     request_show_message = QtCore.pyqtSignal(str, str, str)
-    action_log_updated = QtCore.pyqtSignal(str, str)
     active_disruptions_changed = QtCore.pyqtSignal(list)
     request_map_route_update = QtCore.pyqtSignal(int)
 
@@ -57,13 +56,17 @@ class DisruptionViewModel(QtCore.QObject):
 
         if self.messenger:
             self.messenger.subscribe(MessageType.GRAPH_LOADED, self.handle_graph_loaded)
-            self.messenger.subscribe(MessageType.WAREHOUSE_LOCATION_UPDATED, self.handle_warehouse_location)
-            self.messenger.subscribe(MessageType.DELIVERY_POINTS_UPDATED, self.handle_delivery_points_updated)
+            self.messenger.subscribe(MessageType.WAREHOUSE_LOCATION_UPDATED,
+                                     self.handle_warehouse_location)
+            self.messenger.subscribe(MessageType.DELIVERY_POINTS_UPDATED,
+                                     self.handle_delivery_points_updated)
             self.messenger.subscribe(MessageType.SIMULATION_STARTED, self.handle_simulation_started)
             self.messenger.subscribe(MessageType.DRIVER_UPDATED, self.handle_drivers_updated)
             self.messenger.subscribe(MessageType.ROUTE_CALCULATED, self.handle_route_calculated)
-            self.messenger.subscribe(MessageType.DISRUPTION_ACTIVATED, self.handle_disruption_activated)
-            self.messenger.subscribe(MessageType.DISRUPTION_RESOLVED, self.handle_disruption_resolved)
+            self.messenger.subscribe(MessageType.DISRUPTION_ACTIVATED,
+                                     self.handle_disruption_activated)
+            self.messenger.subscribe(MessageType.DISRUPTION_RESOLVED,
+                                     self.handle_disruption_resolved)
 
     @QtCore.pyqtSlot()
     def _process_queued_route_updates(self):
@@ -165,9 +168,8 @@ class DisruptionViewModel(QtCore.QObject):
                         QtCore.Qt.ConnectionType.QueuedConnection
                     )
 
-                    self.simulation_controller.action_log.connect(self.handle_action_log)
-
-                    self.simulation_controller.disruption_activated.connect(self.handle_disruption_activated_signal)
+                    self.simulation_controller.disruption_activated.connect(
+                        self.handle_disruption_activated_signal)
 
                     if self.resolver is None:
                         self.initialize_resolver()
@@ -211,7 +213,8 @@ class DisruptionViewModel(QtCore.QObject):
         if self.resolver is None:
             if self.G and self.warehouse_location:
                 try:
-                    print(f"Initializing ML Classifier Resolver with model type: {self.ml_model_type}...")
+                    print(
+                        f"Initializing ML Classifier Resolver with model type: {self.ml_model_type}...")
                     ml_resolver = MLClassifierResolver(
                         graph=self.G,
                         warehouse_location=self.warehouse_location,
@@ -229,7 +232,8 @@ class DisruptionViewModel(QtCore.QObject):
                             warehouse_location=self.warehouse_location
                         )
                 except Exception as e:
-                    print(f"Error initializing ML resolver: {e}, falling back to Rule-Based Resolver...")
+                    print(
+                        f"Error initializing ML resolver: {e}, falling back to Rule-Based Resolver...")
                     import traceback
                     traceback.print_exc()
 
@@ -248,7 +252,8 @@ class DisruptionViewModel(QtCore.QObject):
 
     def set_ml_model_type(self, model_type):
         if model_type not in ['random_forest', 'neural_network']:
-            print(f"Warning: Invalid model type '{model_type}'. Must be 'random_forest' or 'neural_network'.")
+            print(
+                f"Warning: Invalid model type '{model_type}'. Must be 'random_forest' or 'neural_network'.")
             return False
 
         self.ml_model_type = model_type
@@ -269,7 +274,8 @@ class DisruptionViewModel(QtCore.QObject):
 
                 return True
             else:
-                print(f"Failed to initialize {model_type} model. Current resolver: {type(self.resolver).__name__}")
+                print(
+                    f"Failed to initialize {model_type} model. Current resolver: {type(self.resolver).__name__}")
                 return False
 
         return True
@@ -309,17 +315,13 @@ class DisruptionViewModel(QtCore.QObject):
 
         return self.disruptions
 
-    def get_active_disruptions(self, simulation_time):
+    def get_active_disruptions(self):
         if not self.disruption_service:
             return []
 
-        self.active_disruptions = self.disruption_service.get_active_disruptions(simulation_time)
+        self.active_disruptions = self.disruption_service.get_active_disruptions()
 
         self.active_disruptions_changed.emit(self.active_disruptions)
-
-        if self.active_disruptions:
-            active_list = ", ".join([f"{d.type.value} (ID: {d.id})" for d in self.active_disruptions])
-            self.action_log_updated.emit(f"Active disruptions: {active_list}", "disruption")
 
         return self.active_disruptions
 
@@ -356,7 +358,8 @@ class DisruptionViewModel(QtCore.QObject):
         if 'total_expected_time' in data:
             if not self.disruption_service:
                 if not self.initialize_disruption_service():
-                    print("Warning: Disruption service not initialized in handle_simulation_started.")
+                    print(
+                        "Warning: Disruption service not initialized in handle_simulation_started.")
                     pass
 
             num_drivers = len(data.get('drivers', []))
@@ -418,40 +421,10 @@ class DisruptionViewModel(QtCore.QObject):
     def handle_drivers_updated(self, data):
         self.drivers = data
 
-    @QtCore.pyqtSlot(str)
-    def handle_action_log(self, message):
-        print(f"DisruptionVM Log Handler received: {message}")
-
-        entry_type = "info"
-        if isinstance(message, str):
-            msg_lower = message.lower()
-            if "reroute" in msg_lower:
-                entry_type = "reroute"
-            elif "reassign" in msg_lower:
-                entry_type = "reassign"
-            elif "wait" in msg_lower:
-                entry_type = "wait"
-            elif "skip" in msg_lower or "failed" in msg_lower:
-                entry_type = "skip"
-            elif "disruption" in msg_lower:
-                entry_type = "disruption"
-            elif "action:" in msg_lower:
-                entry_type = "action"
-            elif "updated route" in msg_lower:
-                entry_type = "info"
-        else:
-            message = str(message)
-            entry_type = "unknown"
-
-        try:
-            self.action_log_updated.emit(message, entry_type)
-            print(f"DisruptionVM emitted action_log_updated ('{entry_type}'): {message}")
-        except Exception as e:
-            print(f"DisruptionVM: Error emitting action_log_updated: {e}")
-
     def send_disruptions_to_map(self):
         if self.messenger:
-            if hasattr(self, '_last_visualization_sent') and self._last_visualization_sent == id(self.disruptions):
+            if hasattr(self, '_last_visualization_sent') and self._last_visualization_sent == id(
+                    self.disruptions):
                 return
             self._last_visualization_sent = id(self.disruptions)
 
@@ -490,11 +463,6 @@ class DisruptionViewModel(QtCore.QObject):
 
             self.processing_disruptions.add(disruption_id)
 
-            self.action_log_updated.emit(
-                f"Disruption activated: {disruption.type.value} (ID: {disruption.id})",
-                "disruption"
-            )
-
             if not (self.simulation_controller and self.resolver):
                 print(f"Missing controller or resolver, cannot process disruption {disruption_id}")
                 self.processing_disruptions.remove(disruption_id)
@@ -502,7 +470,8 @@ class DisruptionViewModel(QtCore.QObject):
 
             if hasattr(self, 'resolver_thread') and self.resolver_thread:
                 if self.resolver_thread.isRunning():
-                    print(f"Stopping existing resolver thread before processing disruption {disruption_id}")
+                    print(
+                        f"Stopping existing resolver thread before processing disruption {disruption_id}")
                     self.resolver_thread.quit()
 
                     if not self.resolver_thread.wait(500):
@@ -529,11 +498,6 @@ class DisruptionViewModel(QtCore.QObject):
 
             self.resolver_worker.resolution_complete.connect(
                 self.handle_resolution_complete,
-                QtCore.Qt.ConnectionType.QueuedConnection
-            )
-
-            self.resolver_worker.log_message.connect(
-                self.action_log_updated,
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
 

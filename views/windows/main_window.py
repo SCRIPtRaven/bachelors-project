@@ -1,5 +1,6 @@
 from PyQt5 import QtWidgets, QtCore
-from PyQt5.QtWidgets import QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QMessageBox, QWidget, QFrame
+from PyQt5.QtWidgets import QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QMessageBox, \
+    QWidget, QFrame
 
 from views.components.map.map_widget import MapWidget
 from views.dialogs.city_selector import CitySelector
@@ -281,31 +282,29 @@ class MainWindow(QWidget):
         self.btn_load_drivers.show()
 
     def generate_deliveries(self):
-        success, message = self.map_widget.delivery_viewmodel.validate_and_generate_points(self.delivery_input.text())
+        success, message = self.map_widget.delivery_viewmodel.validate_and_generate_points(
+            self.delivery_input.text())
         if not success:
             QMessageBox.warning(self, "Invalid Input", message)
 
     def generate_drivers(self):
-        success, message = self.map_widget.driver_viewmodel.validate_and_generate_drivers(self.driver_input.text())
+        success, message = self.map_widget.driver_viewmodel.validate_and_generate_drivers(
+            self.driver_input.text())
         if not success:
             QMessageBox.warning(self, "Invalid Input", message)
 
     def save_deliveries(self):
-        # Placeholder for saving deliveries
         print("Save Deliveries button clicked")
         self.map_widget.delivery_viewmodel.save_deliveries_config()
 
     def load_deliveries(self):
-        # Placeholder for loading deliveries
         print("Load Deliveries button clicked")
         self.map_widget.delivery_viewmodel.load_deliveries_config()
 
     def save_drivers(self):
-        # Placeholder for saving drivers
         print("Save Drivers button clicked")
         self.map_widget.driver_viewmodel.save_drivers_config()
 
     def load_drivers(self):
-        # Placeholder for loading drivers
         print("Load Drivers button clicked")
         self.map_widget.driver_viewmodel.load_drivers_config()

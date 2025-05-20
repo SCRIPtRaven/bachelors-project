@@ -3,7 +3,6 @@ from typing import List, Dict, Any, Optional, Tuple
 
 
 class ActionType(Enum):
-    RECIPIENT_UNAVAILABLE = auto()
     REROUTE_BASIC = auto()
     NO_ACTION = auto()
     REROUTE_TIGHT_AVOIDANCE = auto()
@@ -32,8 +31,6 @@ class DisruptionAction:
 
         if action_type == ActionType.REROUTE_BASIC:
             return RerouteBasicAction.from_dict(data)
-        elif action_type == ActionType.RECIPIENT_UNAVAILABLE:
-            return RecipientUnavailableAction.from_dict(data)
         elif action_type == ActionType.NO_ACTION:
             return NoAction.from_dict(data)
         elif action_type == ActionType.REROUTE_TIGHT_AVOIDANCE:
@@ -60,9 +57,10 @@ class RerouteBasicAction(DisruptionAction):
         self.delivery_indices = delivery_indices or []
 
     def execute(self, controller):
-        print(f"REROUTE ACTION EXECUTE: driver_id={self.driver_id}, route_length={len(self.new_route)}, "
-              f"delivery_indices={self.delivery_indices}, "
-              f"segment={self.rerouted_segment_start}-{self.rerouted_segment_end}")
+        print(
+            f"REROUTE ACTION EXECUTE: driver_id={self.driver_id}, route_length={len(self.new_route)}, "
+            f"delivery_indices={self.delivery_indices}, "
+            f"segment={self.rerouted_segment_start}-{self.rerouted_segment_end}")
 
         result = controller.update_driver_route(
             driver_id=self.driver_id,
@@ -113,11 +111,6 @@ class NoAction(DisruptionAction):
 
     def execute(self, controller):
         print(f"NO ACTION EXECUTE: driver_id={self.driver_id}")
-
-        if hasattr(controller, 'action_log'):
-            controller.action_log.emit(
-                f"Maintaining current route for driver {self.driver_id} despite disruption {self.affected_disruption_id}"
-            )
 
         if hasattr(controller, 'pending_actions'):
             if self.driver_id not in controller.pending_actions:
@@ -217,49 +210,4 @@ class RerouteWideAvoidanceAction(RerouteBasicAction):
             rerouted_segment_end=data.get('rerouted_segment_end'),
             next_delivery_index=data.get('next_delivery_index'),
             delivery_indices=data.get('delivery_indices', [])
-        )
-
-
-class RecipientUnavailableAction(DisruptionAction):
-    def __init__(self, driver_id: int, delivery_index: int, disruption_id: int, duration: int):
-        super().__init__(ActionType.RECIPIENT_UNAVAILABLE)
-        self.driver_id = driver_id
-        self.delivery_index = delivery_index
-        self.disruption_id = disruption_id
-        self.duration = duration
-
-    def execute(self, controller):
-        success = controller.handle_recipient_unavailable(
-            self.driver_id,
-            self.delivery_index,
-            self.disruption_id,
-            self.duration
-        )
-
-        if success:
-            end_time = controller.simulation_time + self.duration
-            controller.action_log.emit(
-                f"Recipient unavailable for delivery {self.delivery_index}. "
-                f"Will check again at {controller._format_time(end_time)}"
-            )
-
-        return success
-
-    def to_dict(self):
-        data = super().to_dict()
-        data.update({
-            'driver_id': self.driver_id,
-            'delivery_index': self.delivery_index,
-            'disruption_id': self.disruption_id,
-            'duration': self.duration
-        })
-        return data
-
-    @staticmethod
-    def from_dict(data):
-        return RecipientUnavailableAction(
-            driver_id=data['driver_id'],
-            delivery_index=data['delivery_index'],
-            disruption_id=data['disruption_id'],
-            duration=data['duration']
         )

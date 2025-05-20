@@ -3,8 +3,8 @@ import os
 from PyQt5 import QtCore
 
 from config.config import PathsConfig
-from models.services import graph
-from models.services.graph import download_and_save_graph, get_largest_connected_component
+from models.services.graph_service import (download_and_save_graph, get_largest_connected_component,
+                                           load_graph, update_travel_times_from_csv)
 
 
 class GraphLoadWorker(QtCore.QThread):
@@ -20,31 +20,30 @@ class GraphLoadWorker(QtCore.QThread):
             travel_times_path = PathsConfig.get_travel_times_path(self.city_name)
 
             try:
-                G = graph.load_graph(filename=graph_path)
-                G = get_largest_connected_component(G)
+                graph = load_graph(filename=graph_path)
+                graph = get_largest_connected_component(graph)
 
-                # Ensure G.graph['name'] is set
-                if not hasattr(G, 'graph') or not isinstance(G.graph, dict):
-                    G.graph = {}
-                if 'name' not in G.graph or G.graph['name'] != self.city_name:
-                    G.graph['name'] = self.city_name
+                if not hasattr(graph, 'graph') or not isinstance(graph.graph, dict):
+                    graph.graph = {}
+                if 'name' not in graph.graph or graph.graph['name'] != self.city_name:
+                    graph.graph['name'] = self.city_name
 
                 if os.path.isfile(travel_times_path):
-                    graph.update_travel_times_from_csv(G, travel_times_path)
+                    update_travel_times_from_csv(graph, travel_times_path)
 
-                self.finished.emit(True, "Graph loaded successfully", G, self.city_name)
+                self.finished.emit(True, "Graph loaded successfully", graph, self.city_name)
 
             except FileNotFoundError:
                 success = download_and_save_graph(self.city_name)
                 if success:
-                    G = graph.load_graph(filename=graph_path)
-                    G = get_largest_connected_component(G)
-                    # Ensure G.graph['name'] is set
-                    if not hasattr(G, 'graph') or not isinstance(G.graph, dict):
-                        G.graph = {}
-                    if 'name' not in G.graph or G.graph['name'] != self.city_name:
-                        G.graph['name'] = self.city_name
-                    self.finished.emit(True, "Graph downloaded and loaded successfully", G, self.city_name)
+                    graph = load_graph(filename=graph_path)
+                    graph = get_largest_connected_component(graph)
+                    if not hasattr(graph, 'graph') or not isinstance(graph.graph, dict):
+                        graph.graph = {}
+                    if 'name' not in graph.graph or graph.graph['name'] != self.city_name:
+                        graph.graph['name'] = self.city_name
+                    self.finished.emit(True, "Graph downloaded and loaded successfully", graph,
+                                       self.city_name)
                 else:
                     self.finished.emit(False, "Failed to download graph", None, self.city_name)
 

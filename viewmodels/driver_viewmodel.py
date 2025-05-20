@@ -1,13 +1,13 @@
-import time
 import json
 import os
+import time
 from datetime import datetime
 
 from PyQt5 import QtCore
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
+from PyQt5.QtWidgets import QFileDialog
 
 from models.entities.driver import Driver
-from models.services.geolocation import GeolocationService
+from models.services.geolocation_service import GeolocationService
 from viewmodels.viewmodel_messenger import MessageType
 
 SAVED_CONFIGS_DIR = "saved_configurations"
@@ -94,7 +94,8 @@ class DriverViewModel(QtCore.QObject):
 
     def validate_and_generate_drivers(self, num_drivers_text):
         if not num_drivers_text.isdigit():
-            self.request_show_message.emit("Invalid Input", "Please enter a valid number of drivers.", "warning")
+            self.request_show_message.emit("Invalid Input",
+                                           "Please enter a valid number of drivers.", "warning")
             return False, "Please enter a valid number of drivers."
 
         num_drivers = int(num_drivers_text)
@@ -103,43 +104,53 @@ class DriverViewModel(QtCore.QObject):
 
     def save_drivers_config(self):
         if not self.delivery_drivers:
-            self.request_show_message.emit("No Drivers", "No drivers have been generated to save.", "warning")
+            self.request_show_message.emit("No Drivers", "No drivers have been generated to save.",
+                                           "warning")
             return
 
         if not os.path.exists(SAVED_CONFIGS_DIR):
             os.makedirs(SAVED_CONFIGS_DIR)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join(SAVED_CONFIGS_DIR, f"drivers_{len(self.delivery_drivers)}_{timestamp}.json")
+        filename = os.path.join(SAVED_CONFIGS_DIR,
+                                f"drivers_{len(self.delivery_drivers)}_{timestamp}.json")
 
         drivers_data = []
         for driver in self.delivery_drivers:
             drivers_data.append({
                 "id": driver.id,
                 "weight_capacity": driver.weight_capacity,
-                "volume_capacity": driver.volume_capacity,
-                # Add any other relevant driver attributes here if needed in the future
+                "volume_capacity": driver.volume_capacity
             })
 
         try:
             with open(filename, 'w') as f:
                 json.dump(drivers_data, f, indent=4)
-            self.request_show_message.emit("Save Successful", f"Driver configuration saved to {filename}", "information")
+            self.request_show_message.emit("Save Successful",
+                                           f"Driver configuration saved to {filename}",
+                                           "information")
         except Exception as e:
-            self.request_show_message.emit("Save Failed", f"Error saving driver configuration: {e}", "critical")
+            self.request_show_message.emit("Save Failed", f"Error saving driver configuration: {e}",
+                                           "critical")
 
     def load_drivers_config(self):
         if not os.path.exists(SAVED_CONFIGS_DIR):
-            os.makedirs(SAVED_CONFIGS_DIR) # Create directory if it doesn't exist, for consistency
+            os.makedirs(SAVED_CONFIGS_DIR)
 
         options = QFileDialog.Options()
-        filename, _ = QFileDialog.getOpenFileName(None, "Load Driver Configuration", SAVED_CONFIGS_DIR, "JSON Files (*.json);;All Files (*)", options=options)
+        filename, _ = QFileDialog.getOpenFileName(None, "Load Driver Configuration",
+                                                  SAVED_CONFIGS_DIR,
+                                                  "JSON Files (*.json);;All Files (*)",
+                                                  options=options)
 
         if not filename:
             return
 
-        if not filename.lower().endswith('.json') or not os.path.basename(filename).startswith("drivers_"):
-            self.request_show_message.emit("Load Failed", "Invalid file selected. Please select a valid driver configuration file (drivers_*.json).", "warning")
+        if not filename.lower().endswith('.json') or not os.path.basename(filename).startswith(
+                "drivers_"):
+            self.request_show_message.emit("Load Failed",
+                                           "Invalid file selected. Please select a valid driver configuration file (drivers_*.json).",
+                                           "warning")
             return
 
         try:
@@ -148,30 +159,37 @@ class DriverViewModel(QtCore.QObject):
 
             loaded_drivers = []
             for driver_data in drivers_data:
-                # Basic validation for essential keys
                 if not all(k in driver_data for k in ["id", "weight_capacity", "volume_capacity"]):
-                    raise ValueError("Driver data is missing one or more required fields (id, weight_capacity, volume_capacity).")
-                
+                    raise ValueError(
+                        "Driver data is missing one or more required fields (id, weight_capacity, volume_capacity).")
+
                 driver = Driver(
                     id=driver_data["id"],
                     weight_capacity=driver_data["weight_capacity"],
                     volume_capacity=driver_data["volume_capacity"]
                 )
                 loaded_drivers.append(driver)
-            
+
             if not loaded_drivers:
-                self.request_show_message.emit("Load Failed", "No valid driver data found in the file.", "warning")
+                self.request_show_message.emit("Load Failed",
+                                               "No valid driver data found in the file.", "warning")
                 return
 
             self.delivery_drivers = loaded_drivers
             self.driver_list_changed.emit(self.delivery_drivers)
             if self.messenger:
                 self.messenger.send(MessageType.DRIVER_UPDATED, self.delivery_drivers)
-            self.request_show_message.emit("Load Successful", f"Driver configuration loaded from {filename}", "information")
+            self.request_show_message.emit("Load Successful",
+                                           f"Driver configuration loaded from {filename}",
+                                           "information")
 
         except json.JSONDecodeError:
-            self.request_show_message.emit("Load Failed", "Invalid JSON file. Could not decode the file content.", "critical")
+            self.request_show_message.emit("Load Failed",
+                                           "Invalid JSON file. Could not decode the file content.",
+                                           "critical")
         except ValueError as ve:
-            self.request_show_message.emit("Load Failed", f"Invalid data format in file: {ve}", "critical")
+            self.request_show_message.emit("Load Failed", f"Invalid data format in file: {ve}",
+                                           "critical")
         except Exception as e:
-            self.request_show_message.emit("Load Failed", f"Error loading driver configuration: {e}", "critical")
+            self.request_show_message.emit("Load Failed",
+                                           f"Error loading driver configuration: {e}", "critical")

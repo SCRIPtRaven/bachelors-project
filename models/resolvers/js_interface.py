@@ -101,26 +101,6 @@ class SimulationJsInterface(QtCore.QObject):
                 self.action_required.emit(action_type)
                 return self._create_response(True)
 
-
-
-            elif event_type == 'recipient_available':
-                driver_id = data.get('driver_id')
-                delivery_index = data.get('delivery_index')
-                disruption_id = data.get('disruption_id')
-                if self.simulation_controller:
-                    handler = self.simulation_controller.disruption_end_handlers.get(disruption_id)
-                    if handler:
-                        handler()
-                        del self.simulation_controller.disruption_end_handlers[disruption_id]
-                        return self._create_response(True)
-                    else:
-                        if hasattr(self.simulation_controller, '_handle_recipient_available'):
-                            success = self.simulation_controller._handle_recipient_available(
-                                driver_id, delivery_index, disruption_id)
-                            return self._create_response(success)
-
-                return self._create_response(False, {'error': 'Could not process recipient available event'})
-
             elif event_type == 'get_actions':
                 driver_id = data.get('driver_id')
                 actions = self._get_pending_actions(driver_id)

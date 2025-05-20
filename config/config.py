@@ -34,10 +34,10 @@ class DeliveryConfig:
 class OptimizationConfig:
     SETTINGS = {
         'VISUALIZE_PROCESS': False,
-        'INITIAL_TEMPERATURE': 100,
-        'COOLING_RATE': 0.9,
-        'MIN_TEMPERATURE': 1.0,
-        'ITERATIONS_PER_TEMPERATURE': 50,
+        'INITIAL_TEMPERATURE': 250,
+        'COOLING_RATE': 0.95,
+        'MIN_TEMPERATURE': 0.5,
+        'ITERATIONS_PER_TEMPERATURE': 100,
     }
 
 
@@ -60,13 +60,12 @@ class PathsConfig:
 class DisruptionConfig:
     ENABLED_TYPES = [
         'traffic_jam',
-        'road_closure',
-        # 'recipient_unavailable',
+        'road_closure'
     ]
 
 
 class SimulationConfig:
-    SPEED = 20
+    SPEED = 7
 
 
 class RouteConfig:
@@ -96,7 +95,7 @@ class RouteConfig:
 class Config:
     def __init__(self):
         self.city_name = "Kaunas, Lithuania"
-        self.warehouse_location = (54.9027, 23.9096) 
+        self.warehouse_location = (54.9027, 23.9096)
         self.delivery_points = [
             (54.9027, 23.9096),
             (54.8985, 23.9036),
@@ -104,12 +103,12 @@ class Config:
             (54.8957, 23.9241),
             (54.9112, 23.8972)
         ]
-    
+
     def get_osm_file_path(self):
         return PathsConfig.get_graph_file_path(self.city_name)
-    
+
     def get_warehouse_location(self):
         return self.warehouse_location
-    
+
     def get_delivery_points(self):
         return self.delivery_points
