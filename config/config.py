@@ -62,10 +62,13 @@ class DisruptionConfig:
         'traffic_jam',
         'road_closure'
     ]
+    
+    MIN_DISRUPTIONS = 10
+    MAX_DISRUPTIONS = 12
 
 
 class SimulationConfig:
-    SPEED = 7
+    SPEED = 20
 
 
 class RouteConfig:

@@ -66,6 +66,8 @@ class MapWidget(LeafletMapWidget):
         self.disruption_viewmodel.request_map_route_update.connect(
             self.handle_viewmodel_route_update_request
         )
+        self.disruption_viewmodel.request_show_loading.connect(self.show_loading)
+        self.disruption_viewmodel.request_hide_loading.connect(self.hide_loading)
 
         self.visualization_queue = VisualizationQueue(self.optimization_viewmodel)
         self.driver_viewmodel.set_visualization_queue(self.visualization_queue)
@@ -76,8 +78,8 @@ class MapWidget(LeafletMapWidget):
         self.js_interface.delivery_completed.connect(self.handle_js_delivery_completed)
         self.js_interface.delivery_failed.connect(self.handle_js_delivery_failed)
         self.js_interface.simulation_time_updated.connect(self.handle_js_simulation_time)
-        self.js_interface.driver_position_updated.connect(self.handle_js_driver_position)
-        self.js_interface.disruption_activated.connect(self.handle_js_disruption_activated)
+        
+        self.map_handler.manual_disruptions_placed.connect(self.handle_manual_disruptions_placed)
 
         self.driver_labels = {}
         self._selected_driver_id = None
@@ -226,6 +228,25 @@ class MapWidget(LeafletMapWidget):
                        'simulation_controller') and self.disruption_viewmodel.simulation_controller:
                 self.disruption_viewmodel.simulation_controller.update_simulation_time(
                     simulation_time)
+
+    def handle_manual_disruptions_placed(self, disruptions):
+        print(f"MapWidget: Processing {len(disruptions)} manually placed disruptions")
+        
+        if not hasattr(self, '_manual_disruptions'):
+            self._manual_disruptions = []
+        
+        self._manual_disruptions = disruptions
+        
+        if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
+            self.disruption_viewmodel.set_manual_disruptions(disruptions)
+        
+        self.show_message(
+            "Manual Disruptions Placed",
+            f"Successfully placed {len(disruptions)} disruptions manually.\n"
+            f"These will be used instead of auto-generated disruptions.\n"
+            f"Auto-generation is now disabled.",
+            "information"
+        )
 
     def update_visualization(self, solution, unassigned_deliveries=None):
         if isinstance(solution, tuple):
@@ -390,6 +411,32 @@ class MapWidget(LeafletMapWidget):
             return
 
         try:
+            if hasattr(self, '_manual_disruptions'):
+                self._manual_disruptions = []
+            if hasattr(self, 'disruption_viewmodel') and self.disruption_viewmodel:
+                self.disruption_viewmodel.set_manual_disruptions([])
+            
+            self.execute_js("""
+                if (typeof clearManualDisruptions === 'function') { 
+                    clearManualDisruptions(); 
+                }
+                if (typeof activeDisruptions !== 'undefined') {
+                    activeDisruptions = [];
+                }
+                if (typeof disruptionMarkers !== 'undefined') {
+                    disruptionMarkers = {};
+                }
+                if (typeof processedDisruptionIds !== 'undefined') {
+                    processedDisruptionIds.clear();
+                }
+                if (typeof layers !== 'undefined' && layers.disruptions) {
+                    layers.disruptions.clearLayers();
+                }
+                console.log('Cleared all disruption state for new optimization');
+            """)
+            
+            self.execute_js("if (typeof hideManualDisruptionControls === 'function') { hideManualDisruptionControls(); }")
+            
             if hasattr(self, 'optimization_thread'):
                 if self.optimization_thread.isRunning():
                     self.optimization_thread.quit()
@@ -456,6 +503,8 @@ class MapWidget(LeafletMapWidget):
                     route["style"],
                     route["popup"]
                 )
+
+            self.execute_js("if (typeof showManualDisruptionControls === 'function') { showManualDisruptionControls(); }")
 
         except Exception as e:
             print(f"Error updating visualization from background: {e}")

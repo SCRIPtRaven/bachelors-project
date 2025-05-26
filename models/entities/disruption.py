@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Tuple, Dict, Any, Set
+from typing import Tuple, Dict, Any, Set, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,8 +19,10 @@ class Disruption(BaseModel):
     resolved: bool = False
     affected_driver_ids: Set[int] = Field(default_factory=set)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    activation_distance: float = 300.0
+    activation_distance: float = 400.0
     is_active: bool = False
+    tripwire_location: Optional[Dict[str, Any]] = None
+    owning_driver_id: Optional[int] = None
 
     def activate(self):
         if not self.is_active:

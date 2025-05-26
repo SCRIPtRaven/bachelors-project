@@ -180,10 +180,29 @@ class LeafletMapWidget(QtWebEngineWidgets.QWebEngineView):
 
 class MapHandler(QtCore.QObject):
     map_initialized = QtCore.pyqtSignal()
+    manual_disruptions_placed = QtCore.pyqtSignal(list)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent_widget = parent
 
     @QtCore.pyqtSlot(str, result=str)
     def handleEvent(self, message):
         if message == "map_initialized":
             self.map_initialized.emit()
+            return "Received in Python"
+        
+        try:
+            import json
+            data = json.loads(message)
+            
+            if data.get('type') == 'manual_disruptions_placed':
+                disruptions = data.get('data', {}).get('disruptions', [])
+                print(f"Received {len(disruptions)} manually placed disruptions")
+                self.manual_disruptions_placed.emit(disruptions)
+                return "Manual disruptions received"
+                
+        except (json.JSONDecodeError, KeyError):
+            pass
 
         return "Received in Python"

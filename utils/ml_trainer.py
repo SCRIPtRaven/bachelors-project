@@ -183,14 +183,14 @@ class MLRerouteTrainer:
                 if isinstance(model, keras.Model):
                     early_stopping = tf.keras.callbacks.EarlyStopping(
                         monitor='val_loss',
-                        patience=25,
+                        patience=50,
                         restore_best_weights=True
                     )
 
                     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
                         monitor='val_loss',
                         factor=0.2,
-                        patience=8,
+                        patience=15,
                         min_lr=0.0001
                     )
 
@@ -223,7 +223,7 @@ class MLRerouteTrainer:
                         'x': X_train_split,
                         'y': y_train_split,
                         'validation_data': (X_val_split, y_val_split),
-                        'epochs': 200,
+                        'epochs': 500,
                         'batch_size': 64,
                         'callbacks': [early_stopping, reduce_lr, checkpoint],
                         'verbose': 1
@@ -313,6 +313,13 @@ class MLRerouteTrainer:
                             if key.startswith('val_'):
                                 continue
                             print(f"Final {key}: {values[-1]:.4f}")
+                        
+                        try:
+                            self._plot_training_history(history.history, 
+                                                       output_dir=self.MODEL_DIR,
+                                                       filename=f"nn_training_history_{timestamp}.png")
+                        except Exception as e:
+                            print(f"Failed to create training history plot: {e}")
 
                     try:
                         self._plot_confusion_matrix(y_test, y_test_pred,
@@ -849,6 +856,62 @@ class MLRerouteTrainer:
             import traceback
             traceback.print_exc()
             return None
+
+    def _plot_training_history(self, history, output_dir=None, filename=None):
+        try:
+            import matplotlib.pyplot as plt
+            
+            fig, ax1 = plt.subplots(figsize=(12, 8))
+            
+            color_loss = 'tab:red'
+            color_acc = 'tab:blue'
+
+            if 'loss' in history:
+                epochs = range(1, len(history['loss']) + 1)
+                ax1.plot(epochs, history['loss'], color=color_loss, linestyle='-', label='Training Loss', linewidth=2)
+                if 'val_loss' in history:
+                    ax1.plot(epochs, history['val_loss'], color=color_loss, linestyle='--', label='Validation Loss', linewidth=2)
+                
+                ax1.set_xlabel('Epoch', fontsize=12)
+                ax1.set_ylabel('Loss', color=color_loss, fontsize=12)
+                ax1.tick_params(axis='y', labelcolor=color_loss)
+                ax1.set_ylim(0, max(1, max(history.get('loss', [1])), max(history.get('val_loss', [1]))) * 1.1)
+                ax1.grid(True, alpha=0.3, axis='x')
+
+            ax2 = ax1.twinx()
+
+            if 'accuracy' in history:
+                ax2.plot(epochs, history['accuracy'], color=color_acc, linestyle='-', label='Training Accuracy', linewidth=2)
+                if 'val_accuracy' in history:
+                    ax2.plot(epochs, history['val_accuracy'], color=color_acc, linestyle='--', label='Validation Accuracy', linewidth=2)
+                
+                ax2.set_ylabel('Accuracy', color=color_acc, fontsize=12)
+                ax2.tick_params(axis='y', labelcolor=color_acc)
+                ax2.set_ylim(0, max(1, max(history.get('accuracy', [1])), max(history.get('val_accuracy', [1]))) * 1.1)
+            
+            fig.suptitle('Model Training History (Loss & Accuracy)', fontsize=16, fontweight='bold')
+
+            lines1, labels1 = ax1.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax2.legend(lines1 + lines2, labels1 + labels2, loc='upper center', bbox_to_anchor=(0.5, -0.1), fancybox=True, shadow=True, ncol=2, fontsize=11)
+            
+            fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+            
+            if output_dir and filename:
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
+                filepath = os.path.join(output_dir, filename)
+                plt.savefig(filepath, dpi=300, bbox_inches='tight')
+                print(f"Training history plot saved to {filepath}")
+            
+            plt.close()
+            
+        except ImportError:
+            print("Matplotlib not available, skipping training history plot")
+        except Exception as e:
+            print(f"Error plotting training history: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _plot_confusion_matrix(self, y_true, y_pred, classes=None, normalize=False,
                                output_dir=None, filename=None):
