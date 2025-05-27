@@ -10,6 +10,7 @@ from models.resolvers.simulation_controller import SimulationController
 from models.services.disruption.disruption_service import DisruptionService
 from viewmodels.viewmodel_messenger import MessageType
 from workers.disruption_resolution_worker import DisruptionResolutionWorker
+from workers.disruption_generation_worker import DisruptionGenerationWorker
 
 
 class DisruptionViewModel(QtCore.QObject):
@@ -19,6 +20,9 @@ class DisruptionViewModel(QtCore.QObject):
     request_show_message = QtCore.pyqtSignal(str, str, str)
     active_disruptions_changed = QtCore.pyqtSignal(list)
     request_map_route_update = QtCore.pyqtSignal(int)
+    request_show_loading = QtCore.pyqtSignal()
+    request_hide_loading = QtCore.pyqtSignal()
+
 
     def __init__(self, messenger=None):
         super().__init__()
@@ -40,6 +44,9 @@ class DisruptionViewModel(QtCore.QObject):
         self.resolver_worker = None
         self.processing_disruptions = set()
 
+        self.generation_thread = QtCore.QThread()
+        self.generation_worker = None
+
         self._pending_driver_updates = set()
         self._processing_timer = QtCore.QTimer(self)
         self._processing_timer.setSingleShot(True)
@@ -51,6 +58,7 @@ class DisruptionViewModel(QtCore.QObject):
         self._route_cache_lock = QtCore.QMutex()
 
         self.ml_model_type = 'random_forest'
+        self._manual_disruptions = []
 
         self._load_model_configuration()
 
@@ -280,7 +288,22 @@ class DisruptionViewModel(QtCore.QObject):
 
         return True
 
+    def set_manual_disruptions(self, disruptions):
+        self._manual_disruptions = disruptions
+        print(f"DisruptionViewModel: Set {len(disruptions)} manual disruptions")
+        
+        if not disruptions and hasattr(self, '_disruptions_generated'):
+            self._disruptions_generated = False
+            self.disruptions = []
+            print("DisruptionViewModel: Reset generation flag and cleared disruptions - auto-generation re-enabled")
+
     def generate_disruptions(self, num_drivers):
+        if self._manual_disruptions:
+            print(f"Using {len(self._manual_disruptions)} manually placed disruptions instead of generating new ones")
+            print("Auto-generation disabled due to manual disruptions")
+            self.handle_generation_complete(self._manual_disruptions)
+            return self.disruptions
+
         if hasattr(self, '_disruptions_generated') and self._disruptions_generated:
             return self.disruptions
 
@@ -294,26 +317,141 @@ class DisruptionViewModel(QtCore.QObject):
             )
             return []
 
-        new_disruptions = self.disruption_service.generate_disruptions(
+        if hasattr(self, 'generation_thread') and self.generation_thread.isRunning():
+            self.generation_thread.quit()
+            if not self.generation_thread.wait(500):
+                self.generation_thread.terminate()
+                self.generation_thread.wait()
+
+        try:
+            if hasattr(self, 'generation_worker') and self.generation_worker:
+                self.generation_worker.generation_complete.disconnect()
+                self.generation_worker.generation_failed.disconnect()
+        except TypeError:
+            pass
+
+        self.generation_thread = QtCore.QThread()
+        self.generation_worker = DisruptionGenerationWorker(
+            self.disruption_service, 
             num_drivers
         )
 
-        self.disruptions.extend(new_disruptions)
+        self.generation_worker.moveToThread(self.generation_thread)
 
-        used_ids = set()
-        for i, d in enumerate(self.disruptions):
-            if d.id in used_ids:
-                self.disruptions[i] = d.copy(update={"id": max(used_ids) + 1})
-            used_ids.add(d.id)
+        self.generation_worker.generation_complete.connect(
+            self.handle_generation_complete,
+            QtCore.Qt.ConnectionType.QueuedConnection
+        )
+        self.generation_worker.generation_failed.connect(
+            self.handle_generation_failed,
+            QtCore.Qt.ConnectionType.QueuedConnection
+        )
 
-        self.disruption_generated.emit(self.disruptions)
+        self.generation_thread.started.connect(
+            self.generation_worker.generate_disruptions,
+            QtCore.Qt.ConnectionType.QueuedConnection
+        )
 
-        if self.messenger:
-            self.messenger.send(MessageType.DISRUPTION_GENERATED, {
-                'disruptions': self.disruptions,
-            })
+        print(f"DisruptionViewModel: Starting generation thread for {num_drivers} drivers")
+        self.generation_thread.start()
 
-        return self.disruptions
+        return []
+
+    @QtCore.pyqtSlot(list)
+    def handle_generation_complete(self, new_disruptions):
+        try:
+            print(f"DisruptionViewModel: Generation complete, received {len(new_disruptions)} disruptions")
+            
+            processed_disruptions = []
+            for disruption in new_disruptions:
+                if isinstance(disruption, dict):
+                    from models.entities.disruption import Disruption, DisruptionType
+                    
+                    if isinstance(disruption['location'], dict):
+                        location = (disruption['location']['lat'], disruption['location']['lng'])
+                    else:
+                        location = (disruption['location'][0], disruption['location'][1])
+                    
+                    tripwire_location = None
+                    if 'tripwire_location' in disruption:
+                        if isinstance(disruption['tripwire_location'], dict):
+                            tripwire_location = (disruption['tripwire_location']['lat'], disruption['tripwire_location']['lng'])
+                        else:
+                            tripwire_location = (disruption['tripwire_location'][0], disruption['tripwire_location'][1])
+                    
+                    disruption_obj = Disruption(
+                        id=disruption['id'],
+                        type=DisruptionType(disruption['type']),
+                        location=location,
+                        affected_area_radius=disruption.get('affected_area_radius', disruption.get('radius', 100)),
+                        duration=int(disruption['duration']),
+                        severity=disruption['severity'],
+                        activation_distance=disruption.get('activation_distance', 200),
+                        metadata={
+                            'manually_placed': disruption.get('manually_placed', False),
+                            'description': disruption.get('metadata', {}).get('description', f"Manually placed {disruption['type']}")
+                        }
+                    )
+                    
+                    if tripwire_location:
+                        disruption_obj.tripwire_location = tripwire_location
+                    if 'owning_driver_id' in disruption:
+                        disruption_obj.owning_driver_id = disruption['owning_driver_id']
+                    processed_disruptions.append(disruption_obj)
+                    print(f"Converted manual disruption with ID {disruption['id']} -> {disruption_obj.id}")
+                else:
+                    processed_disruptions.append(disruption)
+                    print(f"Added existing disruption with ID {disruption.id}")
+            
+            print(f"Processing {len(processed_disruptions)} disruptions with IDs: {[d.id for d in processed_disruptions]}")
+            self.disruptions.extend(processed_disruptions)
+
+            if not self._manual_disruptions:
+                used_ids = set()
+                for i, d in enumerate(self.disruptions):
+                    if d.id in used_ids:
+                        self.disruptions[i] = d.copy(update={"id": max(used_ids) + 1})
+                    used_ids.add(d.id)
+            else:
+                print(f"Preserving original IDs for {len(processed_disruptions)} manual disruptions")
+
+            self.disruption_generated.emit(self.disruptions)
+
+            if self.messenger:
+                self.messenger.send(MessageType.DISRUPTION_GENERATED, {
+                    'disruptions': self.disruptions,
+                })
+
+            self.send_disruptions_to_map()
+
+            print(f"DisruptionViewModel: Successfully processed {len(self.disruptions)} total disruptions")
+
+        except Exception as e:
+            print(f"DisruptionViewModel: Error in handle_generation_complete: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            if hasattr(self, 'generation_thread') and self.generation_thread.isRunning():
+                self.generation_thread.quit()
+                self.generation_thread.wait(500)
+
+    @QtCore.pyqtSlot(str)
+    def handle_generation_failed(self, error_message):
+        try:
+            print(f"DisruptionViewModel: Generation failed: {error_message}")
+            
+            self.request_show_message.emit(
+                "Error",
+                f"Failed to generate disruptions: {error_message}",
+                "critical"
+            )
+
+        except Exception as e:
+            print(f"DisruptionViewModel: Error in handle_generation_failed: {e}")
+        finally:
+            if hasattr(self, 'generation_thread') and self.generation_thread.isRunning():
+                self.generation_thread.quit()
+                self.generation_thread.wait(500)
 
     def get_active_disruptions(self):
         if not self.disruption_service:
@@ -381,8 +519,6 @@ class DisruptionViewModel(QtCore.QObject):
                 self.generate_disruptions(num_drivers)
 
                 self.initialize_simulation_controller()
-
-                self.send_disruptions_to_map()
             elif not self.disruption_service:
                 self.request_show_message.emit(
                     "Warning",
@@ -396,7 +532,7 @@ class DisruptionViewModel(QtCore.QObject):
                     "warning"
                 )
 
-    def resolve_disruption(self, disruption_id):
+    def resolve_disruption(self, disruption_id, send_message=True):
         if not self.disruption_service:
             return False
 
@@ -404,7 +540,7 @@ class DisruptionViewModel(QtCore.QObject):
         if success:
             self.disruption_resolved.emit(disruption_id)
 
-            if self.messenger:
+            if send_message and self.messenger:
                 self.messenger.send(MessageType.DISRUPTION_RESOLVED, {
                     'disruption_id': disruption_id,
                 })
@@ -441,8 +577,18 @@ class DisruptionViewModel(QtCore.QObject):
                     'radius': disruption.affected_area_radius,
                     'severity': disruption.severity,
                     'description': disruption.metadata.get('description',
-                                                           f"{disruption.type.value.replace('_', ' ').title()}")
+                                                           f"{disruption.type.value.replace('_', ' ').title()}"),
+                    'activation_distance': disruption.activation_distance,
+                    'is_active': disruption.is_active,
+                    'duration': disruption.duration
                 }
+                
+                if hasattr(disruption, 'tripwire_location') and disruption.tripwire_location:
+                    data['tripwire_location'] = disruption.tripwire_location
+                    
+                if hasattr(disruption, 'owning_driver_id') and disruption.owning_driver_id is not None:
+                    data['owning_driver_id'] = disruption.owning_driver_id
+                    
                 disruption_data.append(data)
 
             self.messenger.send(MessageType.DISRUPTION_VISUALIZATION, {
@@ -452,20 +598,27 @@ class DisruptionViewModel(QtCore.QObject):
     def handle_disruption_activated(self, data):
         try:
             disruption_id = data.get('disruption_id')
+            print(f"Attempting to activate disruption {disruption_id}")
+            
             if disruption_id in self.processing_disruptions:
+                print(f"Disruption {disruption_id} already being processed")
                 return
 
+            available_ids = [d.id for d in self.disruptions]
+            print(f"Available disruption IDs: {available_ids}")
+            
             disruption = next((d for d in self.disruptions if d.id == disruption_id), None)
             if not disruption:
                 print(f"Could not find disruption with ID {disruption_id}")
-                self.processing_disruptions.remove(disruption_id)
+                print(f"Total disruptions available: {len(self.disruptions)}")
                 return
 
             self.processing_disruptions.add(disruption_id)
 
             if not (self.simulation_controller and self.resolver):
                 print(f"Missing controller or resolver, cannot process disruption {disruption_id}")
-                self.processing_disruptions.remove(disruption_id)
+                if disruption_id in self.processing_disruptions:
+                    self.processing_disruptions.remove(disruption_id)
                 return
 
             if hasattr(self, 'resolver_thread') and self.resolver_thread:
@@ -550,7 +703,7 @@ class DisruptionViewModel(QtCore.QObject):
 
     def handle_disruption_resolved(self, data):
         disruption_id = data.get('disruption_id')
-        self.resolve_disruption(disruption_id)
+        self.resolve_disruption(disruption_id, send_message=False)
 
     def _load_model_configuration(self):
         config_file = Path('config') / 'ml_model_config.pkl'

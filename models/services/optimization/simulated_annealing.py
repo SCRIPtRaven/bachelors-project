@@ -2,6 +2,8 @@ import math
 import random
 import time
 from copy import deepcopy
+import os
+import matplotlib.pyplot as plt
 
 from PyQt5 import QtCore
 from tqdm import tqdm
@@ -20,6 +22,13 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
     def optimize(self):
         try:
             optimization_start_time = time.time()
+
+            iteration_numbers = []
+            temperatures_history = []
+            costs_history = []
+            best_costs_history = []
+            best_time_history = []
+            current_time_history = []
 
             initial_solution, unassigned = self._generate_initial_solution()
             current_solution = deepcopy(initial_solution)
@@ -83,6 +92,13 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
 
                     progress_bar.update(1)
                     iteration_count += 1
+
+                    iteration_numbers.append(iteration_count)
+                    temperatures_history.append(temperature)
+                    costs_history.append(current_cost)
+                    best_costs_history.append(best_cost)
+                    best_time_history.append(best_time / 60)
+                    current_time_history.append(self.calculate_total_time(current_solution) / 60)
 
                     total_time = self.calculate_total_time(current_solution)
                     driver_utilization = self._calculate_driver_utilization(current_solution)
@@ -150,6 +166,9 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
             print(f"Time Improvement: {time_improvement:.2f}%")
             print(f"Final Cooling Rate: {cooling_rate:.4f}")
             print("=" * 50)
+
+            if iteration_numbers:
+                self._plot_results(iteration_numbers, temperatures_history, costs_history, best_costs_history, best_time_history, current_time_history)
 
             self.finished.emit(best_solution, best_unassigned)
             return best_solution, best_unassigned, optimization_duration, time_improvement
@@ -491,3 +510,55 @@ class SimulatedAnnealingOptimizer(DeliveryOptimizer):
         )
 
         return total_cost
+
+    def _plot_results(self, iteration_numbers, temperatures_history, costs_history, best_costs_history, best_time_history, current_time_history):
+        results_dir = "sa_results"
+        if not os.path.exists(results_dir):
+            os.makedirs(results_dir)
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(iteration_numbers, costs_history, label='Current Cost')
+        plt.plot(iteration_numbers, best_costs_history, label='Best Cost', linestyle='--')
+        plt.xlabel("Iteration")
+        plt.ylabel("Cost")
+        plt.title("Cost vs. Iteration in Simulated Annealing")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(results_dir, "cost_vs_iteration.png"))
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(iteration_numbers, temperatures_history, label='Temperature', color='red')
+        plt.xlabel("Iteration")
+        plt.ylabel("Temperature")
+        plt.title("Temperature vs. Iteration in Simulated Annealing")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(results_dir, "temperature_vs_iteration.png"))
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(iteration_numbers, current_time_history, label='Esamas laikas')
+        plt.plot(iteration_numbers, best_time_history, label='Geriausias laikas', linestyle='--')
+        plt.xlabel("Iteracija")
+        plt.ylabel("Kelionės laikas (minutės)")
+        plt.title("Kelionės laikas (esamas ir geriausias) per iteracijas")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(results_dir, "time_vs_iteration.png"))
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(temperatures_history, current_time_history, label='Current Time', color='cyan', linestyle='-', alpha=0.6)
+        plt.plot(temperatures_history, best_time_history, label='Best Time', color='purple', linestyle='--')
+        plt.xlabel("Temperature")
+        plt.ylabel("Time (minutes)")
+        plt.title("Time vs. Temperature in Simulated Annealing")
+        if len(temperatures_history) > 1 and temperatures_history[0] > temperatures_history[-1]:
+            plt.gca().invert_xaxis()
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(results_dir, "time_vs_temperature.png"))
+        plt.close()
+
+        print(f"Simulated annealing plots saved to '{results_dir}' directory.")
